@@ -12,6 +12,7 @@ const BuzzGroupConfigSchema = z
     enabled: z.boolean().optional(),
     requireMention: z.boolean().optional(),
     threadSessions: z.boolean().optional(),
+    replyToMode: z.enum(["off", "all"]).optional(),
     groupPolicy: GroupPolicySchema.optional(),
     groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
   })
@@ -64,6 +65,11 @@ const threadSessionsHint = {
   help: "Give every Buzz thread its own session. A top-level message that reaches the bot starts a new thread session rooted at that message; replies in the thread continue it, and a bot that has taken part in a thread receives later replies there without a mention unless they mention only another bot. Off keeps one session per room.",
 };
 
+const roomReplyToModeHint = {
+  label: "Reply To Mode",
+  help: "Override Reply To Mode for this room. Off posts the bot's replies and typing indicator in the room itself instead of a thread under the triggering message; all threads them. Omit to use the account setting.",
+};
+
 const roomThreadSessionsHint = {
   label: "Thread Sessions",
   help: "Override Thread Sessions for this room. False keeps one session for the whole room, so every message continues it and /new resets it; true gives each thread its own session. Omit to use the account setting.",
@@ -75,6 +81,8 @@ export const BuzzConfigSchema = buildChannelConfigSchema(RawBuzzConfigSchema, {
     "accounts.*.threadSessions": threadSessionsHint,
     "groups.*.threadSessions": roomThreadSessionsHint,
     "accounts.*.groups.*.threadSessions": roomThreadSessionsHint,
+    "groups.*.replyToMode": roomReplyToModeHint,
+    "accounts.*.groups.*.replyToMode": roomReplyToModeHint,
   },
 });
 export type BuzzConfigInput = z.input<typeof RawBuzzConfigSchema>;

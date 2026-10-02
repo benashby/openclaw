@@ -413,6 +413,41 @@ describe("handleBuzzInbound", () => {
     },
   );
 
+  it.each([
+    { account: "all", room: "off", threaded: false },
+    { account: "off", room: "all", threaded: true },
+  ] as const)(
+    "lets a room set replyToMode $room over the account's $account",
+    async ({ account: accountMode, room, threaded }) => {
+      const runtime = createPluginRuntimeMock();
+      setBuzzRuntime(runtime);
+      const bus = createBus();
+      const account = createAccount();
+      const config = {
+        ...account.config,
+        replyToMode: accountMode,
+        groups: { [ROOM_ID]: { requireMention: true, replyToMode: room } },
+      };
+      await handleBuzzInbound({
+        account: { ...account, config },
+        cfg: {},
+        bus,
+        message: createMessage({ mentionedPubkeys: [BOT_PUBLIC_KEY] }),
+        ...createLifecycle(),
+      });
+      const dispatch = firstDispatch(runtime);
+      await dispatch.delivery.deliver({ text: "response" }, { kind: "final" });
+      await dispatch.replyPipeline?.typing?.start();
+      const replyTarget = {
+        channelId: ROOM_ID,
+        threadId: undefined,
+        replyToId: threaded ? "event-1" : undefined,
+      };
+      expect(bus.sendText).toHaveBeenCalledWith({ ...replyTarget, text: "response" });
+      expect(bus.sendTyping).toHaveBeenCalledWith(replyTarget);
+    },
+  );
+
   it("accepts a native Nostr public-key mention", async () => {
     const runtime = createPluginRuntimeMock();
     setBuzzRuntime(runtime);

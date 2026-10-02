@@ -300,11 +300,11 @@ export async function sendBuzzTyping(params: {
   if (!bus) {
     return;
   }
+  const channelId = parseBuzzTarget(params.to);
+  const replyToMode = account.config.groups?.[channelId]?.replyToMode ?? account.config.replyToMode;
   await bus.sendTyping({
-    channelId: parseBuzzTarget(params.to),
+    channelId,
     threadId:
-      account.config.replyToMode === "off" || params.threadId == null
-        ? undefined
-        : String(params.threadId),
+      replyToMode === "off" || params.threadId == null ? undefined : String(params.threadId),
   });
 }
