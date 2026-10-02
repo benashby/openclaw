@@ -511,6 +511,9 @@ function createCronPromptExecutor(
                   diagnosticOwner,
                   sessionEntry: params.cronSession.sessionEntry,
                   contextWindow: params.cronSession.sessionEntry.contextWindow,
+                  // A cron run's text is delivered verbatim. Split text written before a
+                  // tool call off as commentary so only the final message is delivered.
+                  emitCommentaryText: true,
                   cleanupCliLiveSessionOnRunEnd: params.usesDetachedRunSession,
                   sessionFile,
                   storePath: params.cronSession.storePath,
