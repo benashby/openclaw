@@ -46,6 +46,13 @@ export interface BuzzBus {
   directory: BuzzDirectoryState;
   refreshDirectory: () => Promise<void>;
   isBotOwnedThread: (params: { channelId: string; threadId: string }) => Promise<boolean>;
+  /** Records that this identity took part in the thread rooted at `threadRootId`. */
+  noteThreadParticipation: (threadRootId: string | undefined) => void;
+  /**
+   * Whether this identity has taken part in the thread: dispatched a turn for it on this
+   * connection, or published a message into it (answered from the relay after a restart).
+   */
+  isThreadParticipant: (params: { channelId: string; threadRootId: string }) => Promise<boolean>;
   sendText: (params: {
     channelId: string;
     text: string;
@@ -318,10 +325,74 @@ export async function startBuzzBus(options: {
       }
     }
   };
+  // Thread roots this identity has taken part in. Memory is the fast path; the relay is
+  // the durable record, so a restart does not make a bot forget the threads it is in.
+  const participatedThreadRoots = new Set<string>();
+  const noteThreadParticipation = (threadRootId: string | undefined) => {
+    if (!threadRootId) {
+      return;
+    }
+    participatedThreadRoots.add(threadRootId);
+    if (participatedThreadRoots.size > THREAD_ROOT_CACHE_MAX_ENTRIES) {
+      const oldest = participatedThreadRoots.values().next().value;
+      if (oldest) {
+        participatedThreadRoots.delete(oldest);
+      }
+    }
+  };
   const bus: BuzzBus = {
     publicKey,
     directory,
     refreshDirectory: async () => await directoryRelay?.refreshRooms(options.channelIds),
+    noteThreadParticipation,
+    isThreadParticipant: async ({ channelId, threadRootId }) => {
+      signal.throwIfAborted();
+      if (participatedThreadRoots.has(threadRootId)) {
+        return true;
+      }
+      let found = false;
+      try {
+        await queryBuzzRelaySnapshot({
+          relay,
+          filters: [
+            {
+              kinds: [...BUZZ_INBOUND_MESSAGE_KINDS],
+              authors: [publicKey],
+              "#h": [channelId],
+              "#e": [threadRootId],
+              limit: 1,
+            },
+          ],
+          signal,
+          timeoutMessage: "Timed out loading Buzz thread participation",
+          abortMessage: "Buzz thread participation query aborted",
+          failureMessage: "Buzz thread participation query failed",
+          closeReason: "thread participation loaded",
+          closeMessage: (reason) => `Buzz thread participation query closed: ${reason}`,
+          onEvent: (event) => {
+            if (event.pubkey === publicKey) {
+              found = true;
+            }
+          },
+          result: () => {},
+          onTimeout: reportFatalError,
+          checkAbortAfterSubscribe: true,
+        });
+      } catch (error) {
+        signal.throwIfAborted();
+        options.onMessageError?.(
+          error instanceof Error
+            ? error
+            : new Error("Buzz thread participation query failed", { cause: error }),
+        );
+        return false;
+      }
+      signal.throwIfAborted();
+      if (found) {
+        noteThreadParticipation(threadRootId);
+      }
+      return found;
+    },
     isBotOwnedThread: async ({ channelId, threadId }) => {
       signal.throwIfAborted();
       if (!threadRoots.has(threadId)) {
@@ -379,6 +450,7 @@ export async function startBuzzBus(options: {
       });
       await relay.publish(event);
       rememberThreadRoot(event);
+      noteThreadParticipation(threadId ?? replyToId);
       return event.id;
     },
     sendTyping: async ({ channelId, threadId, replyToId }) => {
@@ -401,6 +473,7 @@ export async function startBuzzBus(options: {
       directoryRelay?.close();
       replayGuard.clearMemory();
       threadRoots.clear();
+      participatedThreadRoots.clear();
       relay.close();
       await membershipTracker?.close();
       // Relay close rejects pending publishes; join their profile continuation afterward.

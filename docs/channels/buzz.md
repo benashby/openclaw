@@ -442,11 +442,53 @@ messages can remain in the window. Leaving does not erase conversation history.
 Buzz keeps automatic replies threaded by default (`channels.buzz.replyToMode: "all"`).
 Set `replyToMode: "off"` to send automatic replies at the top level of the room,
 including replies to messages inside existing threads. Typing indicators follow
-the same placement, including heartbeat typing.
+the same placement, including heartbeat typing. Each room under `groups` can
+override the account's setting, so a room that works as a single conversation
+can reply in place while other rooms keep threading.
 
 This changes delivery only: inbound thread context and session identity remain
-intact. Explicit message-tool or CLI sends with a thread or reply target still
+intact. With `replyToMode: "off"`, thread sessions do not start a new session for
+top-level messages. Explicit message-tool or CLI sends with a thread or reply target still
 honor that target. To restore the default, use `"all"` or remove the setting.
+
+### Thread sessions
+
+By default each Buzz room is one session per bot: messages in every thread of
+the room share that session, and threads only decide where replies land.
+
+Set `channels.buzz.threadSessions: true` to give every thread its own session
+instead. Each named account can override it, and so can each room under
+`groups`, so one room can stay a single continuous session while the others use
+thread sessions. With thread sessions on:
+
+- A top-level message that reaches the bot (usually an @mention) starts a new
+  session for that bot, rooted at that message. The bot's reply opens the
+  thread there, so each top-level mention is a fresh, isolated context.
+- Replies inside a thread continue that thread's session
+  (`...:thread:<root event id>`), separate from other threads and from the room.
+- A bot that has already taken part in a thread receives later replies there
+  without a mention, unless a reply mentions only another bot. It has taken
+  part if it was dispatched for the thread or has published into it. After a
+  Gateway restart, OpenClaw checks the relay for its own messages in the
+  thread.
+- A bare text command no longer bypasses mention gating for every bot in the
+  room. Send `/new` inside a thread to reset only that thread's session for the
+  bots taking part.
+
+```json5
+{
+  channels: {
+    buzz: {
+      threadSessions: true,
+      groups: { "7c4a6d2a-2ed9-4b4e-a5e2-4d705ee9b34c": { requireMention: true } },
+    },
+  },
+}
+```
+
+Sender restrictions and `requireMention` still apply to messages that start a
+thread. Combine thread sessions with `session.resetByType.thread` to expire idle
+thread sessions automatically.
 
 ## Manual configuration
 

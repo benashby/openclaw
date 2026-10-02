@@ -8,6 +8,7 @@ import { resolveBotThreadMentionPolicy } from "openclaw/plugin-sdk/channel-menti
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/logging-core";
 import type { HistoryEntry } from "openclaw/plugin-sdk/reply-history";
+import { resolveThreadSessionKeys } from "openclaw/plugin-sdk/routing";
 import type { BuzzBus } from "./buzz-bus.js";
 import type { BuzzConfigInput } from "./config-schema.js";
 import {
@@ -50,13 +51,39 @@ export async function handleBuzzInbound(params: {
       message.text,
       runtime.channel.mentions.buildMentionRegexes(cfg, route.agentId),
     );
-  const wasMentioned = message.mentionedPubkeys.includes(bus.publicKey) || textMention;
+  const directlyMentioned = message.mentionedPubkeys.includes(bus.publicKey) || textMention;
+  // threadSessions: every Buzz thread is its own session. A top-level message starts a
+  // thread rooted at itself (the reply opens it there). Inside a thread, an identity that
+  // has already taken part needs no mention, unless the message mentions another bot.
+  // A room's own setting overrides the account's, for this and for replyToMode.
+  const groupConfig = account.config.groups?.[channelId];
+  const threadSessions = (groupConfig?.threadSessions ?? account.config.threadSessions) === true;
+  const replyToMode = groupConfig?.replyToMode ?? account.config.replyToMode;
+  const mentionsOtherBot =
+    !directlyMentioned &&
+    message.mentionedPubkeys.some(
+      (pubkey) => pubkey !== bus.publicKey && bus.directory.isBotMember(channelId, pubkey),
+    );
+  const threadParticipant =
+    threadSessions &&
+    message.threadId !== undefined &&
+    !directlyMentioned &&
+    !mentionsOtherBot &&
+    (await bus.isThreadParticipant({ channelId, threadRootId: message.threadId }));
+  const wasMentioned = directlyMentioned || threadParticipant;
+  const threadRootId = threadSessions
+    ? (message.threadId ?? (replyToMode === "off" ? undefined : message.id))
+    : message.threadId;
+  const sessionKey =
+    threadSessions && threadRootId
+      ? resolveThreadSessionKeys({ baseSessionKey: route.sessionKey, threadId: threadRootId })
+          .sessionKey
+      : route.sessionKey;
   const shouldComputeCommandAuthorized =
     supportsTextInterpretation &&
     runtime.channel.commands.shouldComputeCommandAuthorized(message.text, cfg);
   const hasControlCommand =
     shouldComputeCommandAuthorized && runtime.channel.text.hasControlCommand(message.text, cfg);
-  const groupConfig = account.config.groups?.[channelId];
   const requireMention = groupConfig?.requireMention ?? true;
   const isBotOwnedThread =
     message.threadId &&
@@ -83,7 +110,7 @@ export async function handleBuzzInbound(params: {
     },
     contextBinding: {
       agentId: route.agentId,
-      sessionKey: route.sessionKey,
+      sessionKey,
       nativeChannelId: channelId,
       messageId: message.id,
       inboundEventKind: "user_request",
@@ -94,7 +121,9 @@ export async function handleBuzzInbound(params: {
     policy: {
       activation: {
         requireMention: mentionPolicy.requireMention,
-        allowTextCommands: true,
+        // With thread sessions a bare command must not reach every bot in the room;
+        // thread participants are already treated as mentioned.
+        allowTextCommands: !threadSessions,
       },
     },
     command: shouldComputeCommandAuthorized
@@ -173,14 +202,14 @@ export async function handleBuzzInbound(params: {
       agentId: route.agentId,
       dmScope: route.dmScope,
       accountId: route.accountId,
-      routeSessionKey: route.sessionKey,
+      routeSessionKey: sessionKey,
     },
     reply: {
       to: target,
       originatingTo: target,
       replyToId: message.id,
-      messageThreadId: message.threadId,
-      threadParentId: message.threadId ? channelId : undefined,
+      messageThreadId: threadRootId,
+      threadParentId: threadRootId ? channelId : undefined,
     },
     message: {
       body,
@@ -199,9 +228,12 @@ export async function handleBuzzInbound(params: {
   });
   const replyTarget = {
     channelId,
-    threadId: account.config.replyToMode === "off" ? undefined : message.threadId,
-    replyToId: account.config.replyToMode === "off" ? undefined : (message.threadId ?? message.id),
+    threadId: replyToMode === "off" ? undefined : threadRootId,
+    replyToId: replyToMode === "off" ? undefined : (message.threadId ?? message.id),
   };
+  if (threadSessions) {
+    bus.noteThreadParticipation(threadRootId);
+  }
 
   const result = await runtime.channel.inbound.dispatch({
     cfg,
@@ -210,7 +242,7 @@ export async function handleBuzzInbound(params: {
     route: {
       agentId: route.agentId,
       dmScope: route.dmScope,
-      sessionKey: route.sessionKey,
+      sessionKey,
     },
     ctxPayload,
     botLoopProtection: bus.directory.isBotMember(channelId, message.senderPubkey)

@@ -121,6 +121,8 @@ function createMockBus(): BuzzBus {
     }),
     refreshDirectory: vi.fn(async () => {}),
     isBotOwnedThread: vi.fn(async () => false),
+    noteThreadParticipation: vi.fn(),
+    isThreadParticipant: vi.fn(async () => false),
     sendText: gatewayMocks.busSendText,
     sendTyping: gatewayMocks.busSendTyping,
     close: gatewayMocks.close,
