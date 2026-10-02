@@ -68,6 +68,7 @@ export const buzzPlugin = createChatChannelPlugin<ResolvedBuzzAccount, BuzzProbe
     },
     capabilities: {
       chatTypes: ["group"],
+      media: true,
       threads: true,
     },
     threading: {

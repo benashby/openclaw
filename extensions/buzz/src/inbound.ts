@@ -7,7 +7,9 @@ import {
 import { resolveBotThreadMentionPolicy } from "openclaw/plugin-sdk/channel-mention-gating";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/logging-core";
+import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-local-roots";
 import type { HistoryEntry } from "openclaw/plugin-sdk/reply-history";
+import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { resolveThreadSessionKeys } from "openclaw/plugin-sdk/routing";
 import type { BuzzBus } from "./buzz-bus.js";
 import type { BuzzConfigInput } from "./config-schema.js";
@@ -265,11 +267,22 @@ export async function handleBuzzInbound(params: {
     },
     delivery: {
       deliver: async (payload) => {
-        const text = payload.text ?? "";
-        if (!text.trim()) {
+        const reply = resolveSendableOutboundReplyParts(payload);
+        if (!reply.hasMedia) {
+          if (reply.hasText) {
+            await bus.sendText({ ...replyTarget, text: reply.text });
+          }
           return;
         }
-        await bus.sendText({ ...replyTarget, text });
+        const { prepareBuzzMediaMessage } = await import("./media.runtime.js");
+        const media = await prepareBuzzMediaMessage({
+          cfg,
+          account,
+          text: reply.text,
+          mediaUrls: reply.mediaUrls,
+          mediaLocalRoots: getAgentScopedMediaLocalRoots(cfg, route.agentId),
+        });
+        await bus.sendText({ ...replyTarget, ...media });
       },
       onError: (error) => {
         throw error instanceof Error ? error : new Error(String(error));
