@@ -104,6 +104,8 @@ function createBus(): BuzzBus {
     }),
     refreshDirectory: vi.fn(async () => {}),
     isBotOwnedThread: vi.fn(async () => false),
+    noteThreadParticipation: vi.fn(),
+    isThreadParticipant: vi.fn(async () => false),
     sendText: vi.fn(async () => "reply-event-1"),
     sendTyping: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),

@@ -48,6 +48,7 @@ const BuzzAccountConfigSchema = z
       )
       .optional(),
     historyLimit: z.number().int().min(0).max(20).optional(),
+    threadSessions: z.boolean().optional(),
     defaultTo: z.string().optional(),
   })
   .strict();
@@ -63,10 +64,17 @@ const botThreadMentionHint = {
   help: "Override mention gating in threads whose root message was signed by this bot in the same room. False allows unmentioned replies; true requires a mention. Omit to preserve the room's mention policy. Sender restrictions still apply.",
 };
 
+const threadSessionsHint = {
+  label: "Thread Sessions",
+  help: "Give every Buzz thread its own session. A top-level message that reaches the bot starts a new thread session rooted at that message; replies in the thread continue it, and a bot that has taken part in a thread receives later replies there without a mention unless they mention only another bot. Off keeps one session per room.",
+};
+
 export const BuzzConfigSchema = buildChannelConfigSchema(RawBuzzConfigSchema, {
   uiHints: {
     "groups.*.requireMentionInBotThreads": botThreadMentionHint,
     "accounts.*.groups.*.requireMentionInBotThreads": botThreadMentionHint,
+    threadSessions: threadSessionsHint,
+    "accounts.*.threadSessions": threadSessionsHint,
   },
 });
 export type BuzzConfigInput = z.input<typeof RawBuzzConfigSchema>;
