@@ -58,6 +58,7 @@ export interface BuzzBus {
     text: string;
     threadId?: string;
     replyToId?: string;
+    imetaTags?: string[][];
   }) => Promise<string>;
   sendTyping: (params: {
     channelId: string;
@@ -74,13 +75,14 @@ function buildBuzzTextEvent(params: {
   threadId?: string;
   replyToId?: string;
   mentionedPubkeys?: string[];
+  imetaTags?: string[][];
 }): Event {
   return finalizeEvent(
     {
       kind: BUZZ_NORMAL_MESSAGE_KIND,
       content: params.text,
       created_at: Math.floor(Date.now() / 1000),
-      tags: buildBuzzMessageTags(params),
+      tags: [...buildBuzzMessageTags(params), ...(params.imetaTags ?? [])],
     },
     params.secretKey,
   );
@@ -171,6 +173,7 @@ export async function sendBuzzTextOneShot(params: {
   text: string;
   threadId?: string;
   replyToId?: string;
+  imetaTags?: string[][];
 }): Promise<string> {
   const secretKey = decodeBuzzPrivateKey(params.privateKey);
   const mentionSyntax = inspectBuzzMentionSyntax(params.text);
@@ -360,7 +363,7 @@ export async function startBuzzBus(options: {
       }
       return found;
     },
-    sendText: async ({ channelId, text, threadId, replyToId }) => {
+    sendText: async ({ channelId, text, threadId, replyToId, imetaTags }) => {
       signal.throwIfAborted();
       bus.noteThreadParticipation(threadId ?? replyToId);
       const mentionSyntax = inspectBuzzMentionSyntax(text);
@@ -379,6 +382,7 @@ export async function startBuzzBus(options: {
         threadId,
         replyToId,
         mentionedPubkeys,
+        imetaTags,
       });
       await relay.publish(event);
       return event.id;

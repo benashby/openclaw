@@ -67,9 +67,10 @@ openclaw message send \
 - Never give OpenClaw a human owner's private key.
 - The generated bot private key is stored in OpenClaw configuration; only its public key is displayed.
 - Treat Buzz messages as untrusted agent input.
-- Currently supported: text conversations, threads, typing, and directory
-  lookup in group rooms.
-- Not yet supported: DMs, media, reactions, or creating rooms from OpenClaw.
+- Currently supported: text conversations, threads, typing, outbound images
+  and video, and directory lookup in group rooms.
+- Not yet supported: DMs, inbound media, reactions, or creating rooms from
+  OpenClaw.
 
 Full documentation: https://docs.openclaw.ai/channels/buzz
 

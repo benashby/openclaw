@@ -3,6 +3,7 @@ import { waitUntilAbort } from "openclaw/plugin-sdk/channel-outbound";
 import { attachChannelToResult } from "openclaw/plugin-sdk/channel-send-result";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { channelReadyPatch } from "openclaw/plugin-sdk/gateway-runtime";
+import type { OutboundMediaLoadOptions } from "openclaw/plugin-sdk/outbound-media";
 import type { HistoryEntry } from "openclaw/plugin-sdk/reply-history";
 import { computeBackoff, sleepWithAbort } from "openclaw/plugin-sdk/runtime-env";
 import type { ChannelGatewayContext } from "../runtime-api.js";
@@ -224,66 +225,91 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
   }
 }
 
+type BuzzOutboundParams = {
+  cfg: OpenClawConfig;
+  to: string;
+  text: string;
+  accountId?: string | null;
+  threadId?: string | number | null;
+  replyToId?: string | number | null;
+};
+
+type BuzzOutboundMediaParams = BuzzOutboundParams & {
+  mediaUrl?: string;
+  mediaAccess?: OutboundMediaLoadOptions["mediaAccess"];
+  mediaLocalRoots?: OutboundMediaLoadOptions["mediaLocalRoots"];
+  mediaReadFile?: OutboundMediaLoadOptions["mediaReadFile"];
+};
+
+async function sendBuzzOutbound(
+  params: BuzzOutboundMediaParams,
+  mediaUrls: readonly string[] = [],
+) {
+  const runtime = getBuzzRuntime();
+  const account = resolveBuzzAccount({ cfg: params.cfg, accountId: params.accountId });
+  const resolvedAccountId = account.accountId;
+  assertBuzzAccountAvailable(account);
+  if (!account.enabled) {
+    throw new Error(`Buzz is disabled for account ${resolvedAccountId}`);
+  }
+  if (!account.configured) {
+    throw new Error(`Buzz is not configured for account ${resolvedAccountId}`);
+  }
+  const bus = activeBuses.get(resolvedAccountId);
+  const channelId = parseBuzzTarget(params.to);
+  const tableMode = runtime.channel.text.resolveMarkdownTableMode({
+    cfg: params.cfg,
+    channel: "buzz",
+    accountId: resolvedAccountId,
+  });
+  const text = runtime.channel.text.convertMarkdownTables(params.text ?? "", tableMode);
+  const media =
+    mediaUrls.length > 0
+      ? await (
+          await import("./media.runtime.js")
+        ).prepareBuzzMediaMessage({
+          cfg: params.cfg,
+          account,
+          text,
+          mediaUrls,
+          mediaAccess: params.mediaAccess,
+          mediaLocalRoots: params.mediaLocalRoots,
+          mediaReadFile: params.mediaReadFile,
+        })
+      : { text, imetaTags: undefined };
+  const outboundMessage = {
+    channelId,
+    text: media.text,
+    threadId: params.threadId == null ? undefined : String(params.threadId),
+    replyToId: params.replyToId == null ? undefined : String(params.replyToId),
+    imetaTags: media.imetaTags,
+  };
+  const messageId = bus
+    ? await bus.sendText(outboundMessage)
+    : await sendBuzzTextOneShot({
+        relayUrl: account.relayUrl,
+        privateKey: account.privateKey,
+        authTag: account.authTag,
+        ...outboundMessage,
+      });
+  return attachChannelToResult("buzz", { to: channelId, messageId });
+}
+
 export const buzzOutboundAdapter = {
   deliveryMode: "direct" as const,
   textChunkLimit: 16_000,
   deliveryCapabilities: {
     durableFinal: {
       text: true,
+      media: true,
       replyTo: true,
       thread: true,
       messageSendingHooks: true,
     },
   },
-  sendText: async ({
-    cfg,
-    to,
-    text,
-    accountId,
-    threadId,
-    replyToId,
-  }: {
-    cfg: OpenClawConfig;
-    to: string;
-    text: string;
-    accountId?: string | null;
-    threadId?: string | number | null;
-    replyToId?: string | number | null;
-  }) => {
-    const runtime = getBuzzRuntime();
-    const account = resolveBuzzAccount({ cfg, accountId });
-    const resolvedAccountId = account.accountId;
-    assertBuzzAccountAvailable(account);
-    if (!account.enabled) {
-      throw new Error(`Buzz is disabled for account ${resolvedAccountId}`);
-    }
-    if (!account.configured) {
-      throw new Error(`Buzz is not configured for account ${resolvedAccountId}`);
-    }
-    const bus = activeBuses.get(resolvedAccountId);
-    const channelId = parseBuzzTarget(to);
-    const tableMode = runtime.channel.text.resolveMarkdownTableMode({
-      cfg,
-      channel: "buzz",
-      accountId: resolvedAccountId,
-    });
-    const message = runtime.channel.text.convertMarkdownTables(text ?? "", tableMode);
-    const outboundMessage = {
-      channelId,
-      text: message,
-      threadId: threadId == null ? undefined : String(threadId),
-      replyToId: replyToId == null ? undefined : String(replyToId),
-    };
-    const messageId = bus
-      ? await bus.sendText(outboundMessage)
-      : await sendBuzzTextOneShot({
-          relayUrl: account.relayUrl,
-          privateKey: account.privateKey,
-          authTag: account.authTag,
-          ...outboundMessage,
-        });
-    return attachChannelToResult("buzz", { to: channelId, messageId });
-  },
+  sendText: async (params: BuzzOutboundParams) => await sendBuzzOutbound(params),
+  sendMedia: async (params: BuzzOutboundMediaParams) =>
+    await sendBuzzOutbound(params, params.mediaUrl ? [params.mediaUrl] : []),
 };
 
 export async function sendBuzzTyping(params: {

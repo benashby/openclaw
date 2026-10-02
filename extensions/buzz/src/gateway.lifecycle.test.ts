@@ -9,6 +9,7 @@ const gatewayMocks = vi.hoisted(() => ({
   busSendText: vi.fn(async () => "event-id"),
   busSendTyping: vi.fn(async () => undefined),
   sendBuzzTextOneShot: vi.fn(async () => "standalone-event-id"),
+  prepareBuzzMediaMessage: vi.fn(),
   onMessage: undefined as
     | ((
         message: import("./message-event.js").BuzzInboundMessage,
@@ -33,6 +34,10 @@ vi.mock("./buzz-bus.js", () => ({
 
 vi.mock("./inbound.js", () => ({
   handleBuzzInbound: vi.fn(async () => {}),
+}));
+
+vi.mock("./media.runtime.js", () => ({
+  prepareBuzzMediaMessage: gatewayMocks.prepareBuzzMediaMessage,
 }));
 
 import { BuzzDirectoryState } from "./directory-state.js";
@@ -339,6 +344,42 @@ describe("Buzz gateway lifecycle", () => {
       to: CHANNEL_ID,
       messageId: "standalone-event-id",
     });
+  });
+
+  it("publishes outbound media as one message that references the uploaded blob", async () => {
+    const cfg = createBuzzConfig();
+    const mediaReadFile = vi.fn<(filePath: string) => Promise<Buffer>>();
+    const imetaTags = [["imeta", "url https://buzz.example.com/media/a.png", "m image/png"]];
+    gatewayMocks.prepareBuzzMediaMessage.mockResolvedValueOnce({
+      text: "chart\n![image](https://buzz.example.com/media/a.png)",
+      imetaTags,
+    });
+
+    await buzzOutboundAdapter.sendMedia({
+      cfg,
+      to: `buzz:${CHANNEL_ID}`,
+      text: "chart",
+      mediaUrl: "/srv/agent/chart.png",
+      mediaLocalRoots: ["/srv/agent"],
+      mediaReadFile,
+      accountId: "default",
+    });
+
+    expect(gatewayMocks.prepareBuzzMediaMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "chart",
+        mediaUrls: ["/srv/agent/chart.png"],
+        mediaLocalRoots: ["/srv/agent"],
+        mediaReadFile,
+      }),
+    );
+    expect(gatewayMocks.sendBuzzTextOneShot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelId: CHANNEL_ID,
+        text: "chart\n![image](https://buzz.example.com/media/a.png)",
+        imetaTags,
+      }),
+    );
   });
 
   it("routes a named default send with only that account's credentials", async () => {
