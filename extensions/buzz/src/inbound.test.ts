@@ -112,6 +112,8 @@ function createBus(): BuzzBus {
       channelIds: [ROOM_ID],
     }),
     refreshDirectory: vi.fn(async () => {}),
+    noteThreadParticipation: vi.fn(),
+    isThreadParticipant: vi.fn(async () => false),
     sendText: vi.fn(async () => "reply-event-1"),
     sendTyping: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
@@ -906,6 +908,165 @@ describe("handleBuzzInbound", () => {
 
     expect(runtime.channel.mentions.matchesMentionPatterns).not.toHaveBeenCalled();
     expect(runtime.channel.inbound.dispatch).not.toHaveBeenCalled();
+  });
+
+  describe("threadSessions", () => {
+    function createThreadBus(botRoles = new Map<string, string>()) {
+      const bus = createBus();
+      bus.directory.replaceMemberships(
+        new Map([
+          [
+            ROOM_ID,
+            {
+              roomId: ROOM_ID,
+              createdAt: 1_777_000_000,
+              eventId: "membership-threads",
+              publisherPublicKey: OTHER_PUBLIC_KEY,
+              members: new Set([BOT_PUBLIC_KEY, SENDER_PUBLIC_KEY, OTHER_PUBLIC_KEY]),
+              roles: botRoles,
+            },
+          ],
+        ]),
+      );
+      return bus;
+    }
+
+    it("keeps one room session when thread sessions are off", async () => {
+      const runtime = createPluginRuntimeMock();
+      setBuzzRuntime(runtime);
+
+      await handleBuzzInbound({
+        account: createAccount(),
+        cfg: {} satisfies OpenClawConfig,
+        bus: createThreadBus(),
+        message: createMessage({ threadId: "event-root", mentionedPubkeys: [BOT_PUBLIC_KEY] }),
+        ...createLifecycle(),
+      });
+
+      expect(firstDispatch(runtime).route.sessionKey).not.toContain(":thread:");
+    });
+
+    it("starts a fresh thread session rooted at a top-level mention", async () => {
+      const runtime = createPluginRuntimeMock();
+      setBuzzRuntime(runtime);
+      const bus = createThreadBus();
+
+      await handleBuzzInbound({
+        account: createAccount({ threadSessions: true }),
+        cfg: {} satisfies OpenClawConfig,
+        bus,
+        message: createMessage({ id: "event-task", mentionedPubkeys: [BOT_PUBLIC_KEY] }),
+        ...createLifecycle(),
+      });
+
+      const dispatch = firstDispatch(runtime);
+      expect(dispatch.route.sessionKey).toMatch(/:thread:event-task$/u);
+      expect(dispatch.ctxPayload).toMatchObject({ MessageThreadId: "event-task" });
+      expect(bus.noteThreadParticipation).toHaveBeenCalledWith("event-task");
+      await dispatch.delivery.deliver({ text: "on it" }, { kind: "final" });
+      expect(bus.sendText).toHaveBeenCalledWith({
+        channelId: ROOM_ID,
+        text: "on it",
+        threadId: "event-task",
+        replyToId: "event-task",
+      });
+    });
+
+    it("routes thread replies to the thread root's session", async () => {
+      const runtime = createPluginRuntimeMock();
+      setBuzzRuntime(runtime);
+
+      await handleBuzzInbound({
+        account: createAccount({ threadSessions: true }),
+        cfg: {} satisfies OpenClawConfig,
+        bus: createThreadBus(),
+        message: createMessage({
+          id: "event-reply",
+          threadId: "event-task",
+          mentionedPubkeys: [BOT_PUBLIC_KEY],
+        }),
+        ...createLifecycle(),
+      });
+
+      expect(firstDispatch(runtime).route.sessionKey).toMatch(/:thread:event-task$/u);
+    });
+
+    it("lets a thread participant hear unmentioned replies", async () => {
+      const runtime = createPluginRuntimeMock();
+      setBuzzRuntime(runtime);
+      const bus = createThreadBus();
+      vi.mocked(bus.isThreadParticipant).mockResolvedValue(true);
+
+      await handleBuzzInbound({
+        account: createAccount({ threadSessions: true }),
+        cfg: {} satisfies OpenClawConfig,
+        bus,
+        message: createMessage({ id: "event-follow-up", threadId: "event-task" }),
+        ...createLifecycle(),
+      });
+
+      expect(bus.isThreadParticipant).toHaveBeenCalledWith({
+        channelId: ROOM_ID,
+        threadRootId: "event-task",
+      });
+      expect(runtime.channel.inbound.dispatch).toHaveBeenCalledTimes(1);
+      expect(firstDispatch(runtime).ctxPayload).toMatchObject({ WasMentioned: true });
+      expect(firstDispatch(runtime).route.sessionKey).toMatch(/:thread:event-task$/u);
+    });
+
+    it("keeps unmentioned thread replies away from non-participants", async () => {
+      const runtime = createPluginRuntimeMock();
+      setBuzzRuntime(runtime);
+
+      await handleBuzzInbound({
+        account: createAccount({ threadSessions: true }),
+        cfg: {} satisfies OpenClawConfig,
+        bus: createThreadBus(),
+        message: createMessage({ threadId: "event-task" }),
+        ...createLifecycle(),
+      });
+
+      expect(runtime.channel.inbound.dispatch).not.toHaveBeenCalled();
+    });
+
+    it("stays quiet when a thread reply mentions only another bot", async () => {
+      const runtime = createPluginRuntimeMock();
+      setBuzzRuntime(runtime);
+      const bus = createThreadBus(new Map([[OTHER_PUBLIC_KEY, "bot"]]));
+      vi.mocked(bus.isThreadParticipant).mockResolvedValue(true);
+
+      await handleBuzzInbound({
+        account: createAccount({ threadSessions: true }),
+        cfg: {} satisfies OpenClawConfig,
+        bus,
+        message: createMessage({ threadId: "event-task", mentionedPubkeys: [OTHER_PUBLIC_KEY] }),
+        ...createLifecycle(),
+      });
+
+      expect(bus.isThreadParticipant).not.toHaveBeenCalled();
+      expect(runtime.channel.inbound.dispatch).not.toHaveBeenCalled();
+    });
+
+    it("does not let a bare command bypass mentions for every bot", async () => {
+      const runtime = createPluginRuntimeMock();
+      vi.mocked(runtime.channel.commands.shouldComputeCommandAuthorized).mockReturnValue(true);
+      vi.mocked(runtime.channel.text.hasControlCommand).mockReturnValue(true);
+      setBuzzRuntime(runtime);
+
+      await handleBuzzInbound({
+        account: createAccount({
+          threadSessions: true,
+          groupPolicy: "allowlist",
+          groups: { [ROOM_ID]: { requireMention: true, groupAllowFrom: [SENDER_PUBLIC_KEY] } },
+        }),
+        cfg: {} satisfies OpenClawConfig,
+        bus: createThreadBus(),
+        message: createMessage({ text: "/new", threadId: "event-task" }),
+        ...createLifecycle(),
+      });
+
+      expect(runtime.channel.inbound.dispatch).not.toHaveBeenCalled();
+    });
   });
 
   it("propagates delivery and session-recording failures", async () => {

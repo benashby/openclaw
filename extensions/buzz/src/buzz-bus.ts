@@ -8,6 +8,7 @@ import {
 import { BuzzDirectoryState } from "./directory-state.js";
 import { inspectBuzzMentionSyntax, resolveBuzzMessageMentions } from "./mentions.js";
 import {
+  BUZZ_INBOUND_MESSAGE_KINDS,
   BUZZ_NORMAL_MESSAGE_KIND,
   BUZZ_TYPING_INDICATOR_KIND,
   buildBuzzMessageTags,
@@ -20,6 +21,7 @@ import {
   connectAuthenticatedBuzzRelaySession,
   parseBuzzAuthTag,
 } from "./relay-auth.js";
+import { queryBuzzRelaySnapshot } from "./relay-subscription.js";
 import {
   BUZZ_REPLAY_DISPATCH_MAX_PENDING,
   createBuzzReplayDispatchQueue,
@@ -37,11 +39,20 @@ const REPLAY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const REPLAY_MAX_ENTRIES = 10_000;
 const REPLAY_STATE_MAX_ENTRIES = 50_000;
 const REPLAY_NAMESPACE_PREFIX = "buzz.inbound-dedupe";
+const THREAD_PARTICIPATION_COMPLETE_REASON = "thread participation loaded";
+const THREAD_PARTICIPATION_TIMEOUT_MS = 5_000;
 
 export interface BuzzBus {
   publicKey: string;
   directory: BuzzDirectoryState;
   refreshDirectory: () => Promise<void>;
+  /** Records that this identity took part in the thread rooted at `threadRootId`. */
+  noteThreadParticipation: (threadRootId: string | undefined) => void;
+  /**
+   * Whether this identity has taken part in the thread: dispatched a turn for it in this
+   * connection, or published a message into it (answered from the relay after a restart).
+   */
+  isThreadParticipant: (params: { channelId: string; threadRootId: string }) => Promise<boolean>;
   sendText: (params: {
     channelId: string;
     text: string;
@@ -297,12 +308,61 @@ export async function startBuzzBus(options: {
   let stopPresenceHeartbeat = () => {};
   let profileTask: Promise<void> | undefined;
   let membershipTracker: Awaited<ReturnType<typeof createBuzzRoomMembershipTracker>> | undefined;
+  // Thread roots this identity has taken part in. Memory is the fast path; the relay is
+  // the durable record, so a restart does not make a bot forget the threads it is in.
+  const participatedThreadRoots = new Set<string>();
   const bus: BuzzBus = {
     publicKey,
     directory,
     refreshDirectory: async () => await directoryRelay?.refreshRooms(options.channelIds),
+    noteThreadParticipation: (threadRootId) => {
+      if (threadRootId) {
+        participatedThreadRoots.add(threadRootId);
+      }
+    },
+    isThreadParticipant: async ({ channelId, threadRootId }) => {
+      if (participatedThreadRoots.has(threadRootId)) {
+        return true;
+      }
+      let found = false;
+      try {
+        await queryBuzzRelaySnapshot({
+          relay,
+          filters: [
+            {
+              kinds: [...BUZZ_INBOUND_MESSAGE_KINDS],
+              authors: [publicKey],
+              "#h": [channelId],
+              "#e": [threadRootId],
+              limit: 1,
+            },
+          ],
+          signal,
+          timeoutMessage: "Timed out loading Buzz thread participation",
+          abortMessage: "Buzz thread participation query aborted",
+          failureMessage: "Buzz thread participation query failed",
+          closeReason: THREAD_PARTICIPATION_COMPLETE_REASON,
+          closeMessage: (reason) => `Buzz thread participation query closed: ${reason}`,
+          onEvent: () => {
+            found = true;
+          },
+          result: () => undefined,
+          timeoutMs: THREAD_PARTICIPATION_TIMEOUT_MS,
+          // A slow lookup must not tear down the account's relay session.
+          closeRelayOnTimeout: false,
+        });
+      } catch {
+        // Unknown participation falls back to the room's normal mention policy.
+        return false;
+      }
+      if (found) {
+        participatedThreadRoots.add(threadRootId);
+      }
+      return found;
+    },
     sendText: async ({ channelId, text, threadId, replyToId }) => {
       signal.throwIfAborted();
+      bus.noteThreadParticipation(threadId ?? replyToId);
       const mentionSyntax = inspectBuzzMentionSyntax(text);
       const mentionedPubkeys =
         mentionSyntax.hasAtMention || mentionSyntax.hasExplicitIdentity
