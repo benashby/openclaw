@@ -6,6 +6,7 @@ import {
 import { createPluginRuntimeMock } from "openclaw/plugin-sdk/channel-test-helpers";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
+import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-local-roots";
 import type { HistoryEntry } from "openclaw/plugin-sdk/reply-history";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BuzzBus } from "./buzz-bus.js";
@@ -30,6 +31,9 @@ vi.mock("openclaw/plugin-sdk/logging-core", async (importOriginal) => {
     }),
   };
 });
+
+const prepareBuzzMediaMessage = vi.hoisted(() => vi.fn());
+vi.mock("./media.runtime.js", () => ({ prepareBuzzMediaMessage }));
 
 vi.mock("openclaw/plugin-sdk/channel-inbound", async (importOriginal) => {
   const actual = await importOriginal<typeof import("openclaw/plugin-sdk/channel-inbound")>();
@@ -871,6 +875,47 @@ describe("handleBuzzInbound", () => {
     await typing?.start();
     expect(bus.sendTyping).toHaveBeenCalledWith({
       channelId: ROOM_ID,
+      threadId: "event-root",
+      replyToId: "event-root",
+    });
+  });
+
+  it("attaches agent reply media from the agent's media roots in the threaded reply", async () => {
+    const runtime = createPluginRuntimeMock();
+    setBuzzRuntime(runtime);
+    const bus = createBus();
+    const cfg = {} satisfies OpenClawConfig;
+    const imetaTags = [["imeta", "url http://127.0.0.1:3000/media/a.png", "m image/png"]];
+    prepareBuzzMediaMessage.mockResolvedValueOnce({
+      text: "figure\n![image](http://127.0.0.1:3000/media/a.png)",
+      imetaTags,
+    });
+
+    await handleBuzzInbound({
+      account: createAccount(),
+      cfg,
+      bus,
+      message: createMessage({ threadId: "event-root", mentionedPubkeys: [BOT_PUBLIC_KEY] }),
+      ...createLifecycle(),
+    });
+    const dispatch = firstDispatch(runtime);
+
+    await dispatch.delivery.deliver(
+      { text: "figure", mediaUrls: ["/agent/media/figure.png"] },
+      { kind: "final" },
+    );
+
+    expect(prepareBuzzMediaMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "figure",
+        mediaUrls: ["/agent/media/figure.png"],
+        mediaLocalRoots: getAgentScopedMediaLocalRoots(cfg, dispatch.route.agentId),
+      }),
+    );
+    expect(bus.sendText).toHaveBeenCalledWith({
+      channelId: ROOM_ID,
+      text: "figure\n![image](http://127.0.0.1:3000/media/a.png)",
+      imetaTags,
       threadId: "event-root",
       replyToId: "event-root",
     });

@@ -26,9 +26,10 @@ in a hosted or self-hosted Buzz workspace.
   through OpenClaw's directory commands
 - Reconnects and avoids processing the same message twice
 
-The current plugin supports group rooms, Markdown text, and inbound structured
-diffs. Direct messages, media and files, native reactions, room creation, and
-automatic admin approval are not supported yet.
+The current plugin supports group rooms, Markdown text, outbound images and
+video, and inbound structured diffs. Direct messages, inbound media and files,
+native reactions, room creation, and automatic admin approval are not supported
+yet.
 
 ## Buzz identity and room model
 
@@ -187,6 +188,7 @@ Agents can:
 - Receive Buzz kind `9` normal messages, kind `40002` rich-content messages,
   and kind `40008` structured diffs
 - Send Markdown text to an approved Buzz room as a normal kind `9` message
+- Attach images and video to replies and proactive messages
 - Send native room-member mentions from normal replies and proactive messages
 - Use the configured default room when a workflow does not specify a target
 - Use the routed agent's normal skills, memory, and allowed tools
@@ -195,6 +197,15 @@ Structured diffs include their repository, commit, file, branch, pull request,
 language, description, truncation status, and unified-diff content in the agent
 context when those fields are present. Diff content is not interpreted as an
 OpenClaw command or textual mention.
+
+Attachments are uploaded to the account's relay as Blossom blobs, signed by the
+bot identity, and referenced from the message with NIP-92 `imeta` tags. An agent
+reply carries its text and attachments as one Buzz message; proactive sends post
+one message per attachment, with the text on the first. Uploads are capped at
+50 MiB or the lower `agents.defaults.mediaMaxMb`, and the
+relay decides which file types it accepts. If an attachment cannot be loaded or
+the relay rejects it, the message is still sent and ends with
+`⚠️ Media failed.`; the gateway log records the reason.
 
 Typing uses Buzz's ephemeral kind `20002` on the active authenticated Gateway
 connection. Ordinary replies refresh it every three seconds. Heartbeat-driven
@@ -726,7 +737,7 @@ automatic today.
 These follow-up areas are planned but are not part of the current plugin:
 
 - Direct messages
-- Media and file upload or download
+- Inbound media and files sent to agents
 - Native emoji reactions
 - Creating or administering rooms from OpenClaw
 - Automatic relay membership and room-role approval
