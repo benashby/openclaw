@@ -1,7 +1,7 @@
 import { crc32 } from "node:zlib";
 import { getImageMetadata, resizeToJpeg } from "openclaw/plugin-sdk/media-runtime";
 import { describe, expect, it } from "vitest";
-import { sanitizeBuzzUploadMedia, stripPngMetadata } from "./media-sanitize.js";
+import { sanitizeBuzzUploadMedia, stripPngMetadata, stripWebpMetadata } from "./media-sanitize.js";
 
 // 1x1 transparent PNG: IHDR, IDAT, IEND.
 const PNG = Buffer.from(
@@ -65,6 +65,58 @@ describe("stripPngMetadata", () => {
   it("rejects input that is not a complete PNG", () => {
     expect(stripPngMetadata(Buffer.from("not a png"))).toBeUndefined();
     expect(stripPngMetadata(PNG.subarray(0, IEND_OFFSET))).toBeUndefined();
+  });
+});
+
+function riffChunk(kind: string, data: Buffer): Buffer {
+  const head = Buffer.alloc(8);
+  head.write(kind, 0, "latin1");
+  head.writeUInt32LE(data.length, 4);
+  return Buffer.concat([head, data, Buffer.alloc(data.length & 1)]);
+}
+
+function webp(...chunks: Buffer[]): Buffer {
+  const body = Buffer.concat(chunks);
+  const header = Buffer.alloc(12);
+  header.write("RIFF", 0, "latin1");
+  header.writeUInt32LE(body.length + 4, 4);
+  header.write("WEBP", 8, "latin1");
+  return Buffer.concat([header, body]);
+}
+
+function riffChunkKinds(buffer: Buffer): string[] {
+  const kinds: string[] = [];
+  for (let offset = 12; offset + 8 <= buffer.length;) {
+    kinds.push(buffer.toString("latin1", offset, offset + 4));
+    const length = buffer.readUInt32LE(offset + 4);
+    offset += 8 + length + (length & 1);
+  }
+  return kinds;
+}
+
+describe("stripWebpMetadata", () => {
+  it("drops metadata chunks and flags but keeps image data and alpha", () => {
+    const vp8x = Buffer.alloc(10);
+    vp8x.writeUInt8(0x10 | 0x08 | 0x04, 0); // alpha + EXIF + XMP
+    const dirty = webp(
+      riffChunk("VP8X", vp8x),
+      riffChunk("VP8L", Buffer.from([0x2f, 0x00, 0x00, 0x00, 0x00])),
+      riffChunk("EXIF", Buffer.from("MM\0*")),
+      riffChunk("XMP ", Buffer.from("<x/>")),
+    );
+
+    const clean = stripWebpMetadata(dirty);
+
+    expect(clean && riffChunkKinds(clean)).toEqual(["VP8X", "VP8L"]);
+    expect(clean?.readUInt8(20)).toBe(0x10);
+    expect(clean?.readUInt32LE(4)).toBe((clean?.length ?? 0) - 8);
+  });
+
+  it("rejects input that is not a complete WebP", () => {
+    expect(stripWebpMetadata(Buffer.from("not a webp"))).toBeUndefined();
+    expect(
+      stripWebpMetadata(webp(riffChunk("VP8L", Buffer.alloc(4))).subarray(0, 18)),
+    ).toBeUndefined();
   });
 });
 
