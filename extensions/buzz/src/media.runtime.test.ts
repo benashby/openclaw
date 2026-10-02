@@ -47,7 +47,7 @@ function blobDescriptor(request: UploadRequest) {
   };
 }
 
-function prepare(mediaUrls: string[], text = "New figure listed") {
+function prepare(mediaUrls: string[], text = "New figure listed", file = PNG) {
   const cfg = {
     channels: { buzz: { relayUrl: origin.replace("http:", "ws:"), privateKey: "1".repeat(64) } },
   } as OpenClawConfig;
@@ -57,7 +57,7 @@ function prepare(mediaUrls: string[], text = "New figure listed") {
     text,
     mediaUrls,
     mediaLocalRoots: [MEDIA_ROOT],
-    mediaReadFile: async () => PNG,
+    mediaReadFile: async () => file,
   });
 }
 
@@ -130,6 +130,16 @@ describe("prepareBuzzMediaMessage", () => {
         ],
       ],
     });
+  });
+
+  it("strips image metadata before upload", async () => {
+    // A tEXt chunk before IEND, which Buzz relays refuse with HTTP 422.
+    const comment = Buffer.from("0000000a74455874436f6d6d656e74006869a1b2c3d4", "hex");
+    const tagged = Buffer.concat([PNG.subarray(0, -12), comment, PNG.subarray(-12)]);
+
+    await prepare([`${MEDIA_ROOT}/tagged.png`], "New figure listed", tagged);
+
+    expect(uploads[0]?.body.equals(PNG)).toBe(true);
   });
 
   it("keeps the reply and notes the attachment when the relay rejects it", async () => {
