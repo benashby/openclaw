@@ -203,7 +203,9 @@ bot identity, and referenced from the message with NIP-92 `imeta` tags. An agent
 reply carries its text and attachments as one Buzz message; proactive sends post
 one message per attachment, with the text on the first. Uploads are capped at
 50 MiB or the lower `agents.defaults.mediaMaxMb`, and the
-relay decides which file types it accepts. If an attachment cannot be loaded or
+relay decides which file types it accepts. Buzz relays refuse images that carry
+metadata, so JPEGs are re-encoded (applying their EXIF orientation) and PNGs
+lose their metadata chunks before upload, as Buzz's own clients do. If an attachment cannot be loaded or
 the relay rejects it, the message is still sent and ends with
 `⚠️ Media failed.`; the gateway log records the reason.
 

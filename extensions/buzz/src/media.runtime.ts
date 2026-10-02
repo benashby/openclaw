@@ -13,6 +13,7 @@ import {
   fetchWithSsrFGuard,
   ssrfPolicyFromHttpBaseUrlAllowedOrigin,
 } from "openclaw/plugin-sdk/ssrf-runtime";
+import { sanitizeBuzzUploadMedia } from "./media-sanitize.js";
 import { parseBuzzAuthTag } from "./relay-auth.js";
 import { decodeBuzzPrivateKey, type ResolvedBuzzAccount } from "./types.js";
 
@@ -193,11 +194,11 @@ export async function prepareBuzzMediaMessage(params: {
         mediaLocalRoots: params.mediaLocalRoots,
         mediaReadFile: params.mediaReadFile,
       });
-      const descriptor = await uploadBuzzBlob({
-        account: params.account,
+      const upload = await sanitizeBuzzUploadMedia({
         buffer: media.buffer,
-        contentType: media.contentType?.trim() || "application/octet-stream",
+        contentType: media.contentType?.trim().toLowerCase() || "application/octet-stream",
       });
+      const descriptor = await uploadBuzzBlob({ account: params.account, ...upload });
       lines.push(formatBuzzMediaMarkdown(descriptor));
       imetaTags.push(buildBuzzImetaTag(descriptor));
     } catch (error) {
