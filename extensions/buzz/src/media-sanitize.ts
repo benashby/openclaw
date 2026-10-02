@@ -17,6 +17,10 @@ const PNG_RENDERING_CHUNKS = new Set([
   "fcTL",
   "fdAT",
 ]);
+const WEBP_IMAGE_CHUNKS = new Set(["VP8 ", "VP8L", "VP8X", "ALPH", "ANIM", "ANMF"]);
+// VP8X presence flags for ICC, EXIF and XMP; the relay rejects them even
+// without the matching chunks.
+const WEBP_VP8X_METADATA_FLAGS = 0x20 | 0x08 | 0x04;
 const JPEG_SANITIZE_QUALITY = 85;
 
 export type BuzzUploadMedia = {
@@ -54,15 +58,64 @@ export function stripPngMetadata(buffer: Buffer): Buffer | undefined {
 }
 
 /**
+ * Drops every top-level WebP chunk that is not image data (EXIF, XMP, ICCP and
+ * unknown chunks) and clears the matching VP8X flags, so pixels, alpha and
+ * animation are unchanged. Returns undefined for malformed input.
+ */
+export function stripWebpMetadata(buffer: Buffer): Buffer | undefined {
+  if (
+    buffer.length < 12 ||
+    buffer.toString("latin1", 0, 4) !== "RIFF" ||
+    buffer.toString("latin1", 8, 12) !== "WEBP"
+  ) {
+    return undefined;
+  }
+  const kept: Buffer[] = [];
+  let offset = 12;
+  while (offset < buffer.length) {
+    if (offset + 8 > buffer.length) {
+      return undefined;
+    }
+    const kind = buffer.toString("latin1", offset, offset + 4);
+    const length = buffer.readUInt32LE(offset + 4);
+    const end = offset + 8 + length + (length & 1);
+    if (end > buffer.length) {
+      return undefined;
+    }
+    if (WEBP_IMAGE_CHUNKS.has(kind)) {
+      const chunk = Buffer.from(buffer.subarray(offset, end));
+      if (kind === "VP8X" && length > 0) {
+        chunk.writeUInt8(chunk.readUInt8(8) & ~WEBP_VP8X_METADATA_FLAGS, 8);
+      }
+      kept.push(chunk);
+    }
+    offset = end;
+  }
+  const body = Buffer.concat(kept);
+  const header = Buffer.alloc(12);
+  header.write("RIFF", 0, "latin1");
+  header.writeUInt32LE(body.length + 4, 4);
+  header.write("WEBP", 8, "latin1");
+  return Buffer.concat([header, body]);
+}
+
+/**
  * Prepares an attachment for a Buzz relay. JPEGs are re-encoded at full size,
- * which applies EXIF orientation before dropping it; PNGs lose their metadata
- * chunks. Other types pass through and the relay remains the authority.
+ * which applies EXIF orientation before dropping it; PNGs and WebPs lose their
+ * metadata chunks. Other types pass through and the relay remains the authority.
  */
 export async function sanitizeBuzzUploadMedia(media: BuzzUploadMedia): Promise<BuzzUploadMedia> {
   if (media.contentType === "image/png") {
     const stripped = stripPngMetadata(media.buffer);
     if (!stripped) {
       throw new Error("Buzz media sanitize failed: malformed PNG");
+    }
+    return { buffer: stripped, contentType: media.contentType };
+  }
+  if (media.contentType === "image/webp") {
+    const stripped = stripWebpMetadata(media.buffer);
+    if (!stripped) {
+      throw new Error("Buzz media sanitize failed: malformed WebP");
     }
     return { buffer: stripped, contentType: media.contentType };
   }
