@@ -208,7 +208,7 @@ describe("session-bound cron workspace", () => {
     const result = await run();
     expect(result, JSON.stringify(result)).toMatchObject({ status: "ok" });
     expect(runCliAgentMock).toHaveBeenCalledWith(
-      expect.objectContaining({ workspaceDir, cwd: workspaceDir }),
+      expect.objectContaining({ workspaceDir, cwd: workspaceDir, emitCommentaryText: true }),
     );
     expect(worktrees.release).toHaveBeenCalledOnce();
     expect(resolveDeliveryTargetMock).not.toHaveBeenCalled();
