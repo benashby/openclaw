@@ -120,6 +120,30 @@ describe("handleBuzzInbound threadSessions", () => {
     expect(firstDispatch(runtime).route.sessionKey).not.toContain(":thread:");
   });
 
+  it.each([
+    { account: true, room: false, threaded: false },
+    { account: false, room: true, threaded: true },
+  ])(
+    "lets a room set threadSessions $room over the account's $account",
+    async ({ account, room, threaded }) => {
+      const runtime = createPluginRuntimeMock();
+      setBuzzRuntime(runtime);
+
+      await handleBuzzInbound({
+        account: createAccount({
+          threadSessions: account,
+          groups: { [ROOM_ID]: { requireMention: true, threadSessions: room } },
+        }),
+        cfg: {} satisfies OpenClawConfig,
+        bus: createThreadBus(),
+        message: createMessage({ id: "event-task", mentionedPubkeys: [BOT_PUBLIC_KEY] }),
+        ...createLifecycle(),
+      });
+
+      expect(firstDispatch(runtime).route.sessionKey.endsWith(":thread:event-task")).toBe(threaded);
+    },
+  );
+
   it("starts a fresh thread session rooted at a top-level mention", async () => {
     const runtime = createPluginRuntimeMock();
     setBuzzRuntime(runtime);

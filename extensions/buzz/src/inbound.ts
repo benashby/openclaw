@@ -55,7 +55,9 @@ export async function handleBuzzInbound(params: {
   // threadSessions: every Buzz thread is its own session. A top-level message starts a
   // thread rooted at itself (the reply opens it there). Inside a thread, an identity that
   // has already taken part needs no mention, unless the message mentions another bot.
-  const threadSessions = account.config.threadSessions === true;
+  // A room's own setting overrides the account's.
+  const groupConfig = account.config.groups?.[channelId];
+  const threadSessions = (groupConfig?.threadSessions ?? account.config.threadSessions) === true;
   const mentionsOtherBot =
     !directlyMentioned &&
     message.mentionedPubkeys.some(
@@ -81,7 +83,6 @@ export async function handleBuzzInbound(params: {
     runtime.channel.commands.shouldComputeCommandAuthorized(message.text, cfg);
   const hasControlCommand =
     shouldComputeCommandAuthorized && runtime.channel.text.hasControlCommand(message.text, cfg);
-  const groupConfig = account.config.groups?.[channelId];
   const requireMention = groupConfig?.requireMention ?? true;
   const isBotOwnedThread =
     message.threadId &&

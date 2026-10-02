@@ -455,7 +455,9 @@ By default each Buzz room is one session per bot: messages in every thread of
 the room share that session, and threads only decide where replies land.
 
 Set `channels.buzz.threadSessions: true` to give every thread its own session
-instead. Each named account can override it. With thread sessions on:
+instead. Each named account can override it, and so can each room under
+`groups`, so one room can stay a single continuous session while the others use
+thread sessions. With thread sessions on:
 
 - A top-level message that reaches the bot (usually an @mention) starts a new
   session for that bot, rooted at that message. The bot's reply opens the
