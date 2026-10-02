@@ -55,9 +55,10 @@ export async function handleBuzzInbound(params: {
   // threadSessions: every Buzz thread is its own session. A top-level message starts a
   // thread rooted at itself (the reply opens it there). Inside a thread, an identity that
   // has already taken part needs no mention, unless the message mentions another bot.
-  // A room's own setting overrides the account's.
+  // A room's own setting overrides the account's, for this and for replyToMode.
   const groupConfig = account.config.groups?.[channelId];
   const threadSessions = (groupConfig?.threadSessions ?? account.config.threadSessions) === true;
+  const replyToMode = groupConfig?.replyToMode ?? account.config.replyToMode;
   const mentionsOtherBot =
     !directlyMentioned &&
     message.mentionedPubkeys.some(
@@ -71,7 +72,7 @@ export async function handleBuzzInbound(params: {
     (await bus.isThreadParticipant({ channelId, threadRootId: message.threadId }));
   const wasMentioned = directlyMentioned || threadParticipant;
   const threadRootId = threadSessions
-    ? (message.threadId ?? (account.config.replyToMode === "off" ? undefined : message.id))
+    ? (message.threadId ?? (replyToMode === "off" ? undefined : message.id))
     : message.threadId;
   const sessionKey =
     threadSessions && threadRootId
@@ -227,8 +228,8 @@ export async function handleBuzzInbound(params: {
   });
   const replyTarget = {
     channelId,
-    threadId: account.config.replyToMode === "off" ? undefined : threadRootId,
-    replyToId: account.config.replyToMode === "off" ? undefined : (message.threadId ?? message.id),
+    threadId: replyToMode === "off" ? undefined : threadRootId,
+    replyToId: replyToMode === "off" ? undefined : (message.threadId ?? message.id),
   };
   if (threadSessions) {
     bus.noteThreadParticipation(threadRootId);

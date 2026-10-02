@@ -442,7 +442,9 @@ messages can remain in the window. Leaving does not erase conversation history.
 Buzz keeps automatic replies threaded by default (`channels.buzz.replyToMode: "all"`).
 Set `replyToMode: "off"` to send automatic replies at the top level of the room,
 including replies to messages inside existing threads. Typing indicators follow
-the same placement, including heartbeat typing.
+the same placement, including heartbeat typing. Each room under `groups` can
+override the account's setting, so a room that works as a single conversation
+can reply in place while other rooms keep threading.
 
 This changes delivery only: inbound thread context and session identity remain
 intact. With `replyToMode: "off"`, thread sessions do not start a new session for
