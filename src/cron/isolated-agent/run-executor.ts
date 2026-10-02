@@ -631,6 +631,9 @@ function createCronPromptExecutor(
                   contextWindow: params.cronSession.sessionEntry.contextWindow,
                   agentId: params.agentId,
                   trigger: "cron",
+                  // A cron run's text is delivered verbatim. Split text written before a
+                  // tool call off as commentary so only the final message is delivered.
+                  emitCommentaryText: true,
                   jobId: params.job.id,
                   messageActionTurnCapability,
                   cleanupCliLiveSessionOnRunEnd: params.usesDetachedRunSession === true,

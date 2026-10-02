@@ -122,6 +122,7 @@ describe("runCronIsolatedAgentTurn — rooted runtime fallback", () => {
         workspaceDir: executionRoot,
         skillsSnapshot,
         trigger: "cron",
+        emitCommentaryText: true,
         toolsAllow: [...SKILL_WORKSHOP_MAINTENANCE_TOOLS],
       }),
     );

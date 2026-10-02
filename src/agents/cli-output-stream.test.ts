@@ -559,6 +559,58 @@ describe("createCliJsonlStreamingParser", () => {
     expect(deltas.at(-1)?.text).toBe("Marker caribou-lampion-473 explanation.\n\nTEST DONE");
   });
 
+  it("keeps only the final message when pre-tool text goes to a commentary consumer", () => {
+    const commentary: string[] = [];
+    const parser = createCliJsonlStreamingParser({
+      backend: {
+        command: "local-cli",
+        output: "jsonl",
+        jsonlDialect: "claude-stream-json",
+        sessionIdFields: ["session_id"],
+      },
+      providerId: "local-cli",
+      onAssistantDelta: () => {},
+      onCommentaryText: (text) => commentary.push(text),
+    });
+
+    parser.push(
+      [
+        JSON.stringify({ type: "init", session_id: "session-tool-split" }),
+        JSON.stringify({ type: "stream_event", event: { type: "message_start" } }),
+        JSON.stringify({
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "text_delta", text: "Searching the feeds now." },
+          },
+        }),
+        JSON.stringify({
+          type: "stream_event",
+          event: {
+            type: "content_block_start",
+            content_block: { type: "tool_use", id: "tool-1", name: "session_status" },
+          },
+        }),
+        JSON.stringify({ type: "stream_event", event: { type: "message_stop" } }),
+        JSON.stringify({ type: "stream_event", event: { type: "message_start" } }),
+        JSON.stringify({
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "text_delta", text: "Final report" },
+          },
+        }),
+        JSON.stringify({ type: "stream_event", event: { type: "message_stop" } }),
+        JSON.stringify({ type: "result", session_id: "session-tool-split", result: "Final report" }),
+        "",
+      ].join("\n"),
+    );
+    parser.finish();
+
+    expect(commentary).toEqual(["Searching the feeds now."]);
+    expect(parser.getOutput()?.text).toBe("Final report");
+  });
+
   it.each([
     {
       name: "keeps pre-tool text when text, tool_use, and text share one assistant message",
