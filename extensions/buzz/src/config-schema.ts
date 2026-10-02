@@ -11,6 +11,7 @@ const BuzzGroupConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
     requireMention: z.boolean().optional(),
+    threadSessions: z.boolean().optional(),
     groupPolicy: GroupPolicySchema.optional(),
     groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
   })
@@ -63,10 +64,17 @@ const threadSessionsHint = {
   help: "Give every Buzz thread its own session. A top-level message that reaches the bot starts a new thread session rooted at that message; replies in the thread continue it, and a bot that has taken part in a thread receives later replies there without a mention unless they mention only another bot. Off keeps one session per room.",
 };
 
+const roomThreadSessionsHint = {
+  label: "Thread Sessions",
+  help: "Override Thread Sessions for this room. False keeps one session for the whole room, so every message continues it and /new resets it; true gives each thread its own session. Omit to use the account setting.",
+};
+
 export const BuzzConfigSchema = buildChannelConfigSchema(RawBuzzConfigSchema, {
   uiHints: {
     threadSessions: threadSessionsHint,
     "accounts.*.threadSessions": threadSessionsHint,
+    "groups.*.threadSessions": roomThreadSessionsHint,
+    "accounts.*.groups.*.threadSessions": roomThreadSessionsHint,
   },
 });
 export type BuzzConfigInput = z.input<typeof RawBuzzConfigSchema>;
