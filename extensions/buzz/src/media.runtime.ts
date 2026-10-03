@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { finalizeEvent } from "nostr-tools";
 import { resolveChannelMediaMaxBytes } from "openclaw/plugin-sdk/account-helpers";
 import { bufferToBlobPart } from "openclaw/plugin-sdk/blob-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
@@ -13,14 +12,13 @@ import {
   fetchWithSsrFGuard,
   ssrfPolicyFromHttpBaseUrlAllowedOrigin,
 } from "openclaw/plugin-sdk/ssrf-runtime";
+import { buildBlossomAuthorization, resolveBuzzRelayHttpUrl } from "./blossom-auth.js";
 import { sanitizeBuzzUploadMedia } from "./media-sanitize.js";
 import { parseBuzzAuthTag } from "./relay-auth.js";
 import { decodeBuzzPrivateKey, type ResolvedBuzzAccount } from "./types.js";
 
 // Matches the Buzz CLI's image ceiling; the relay stays the authority on type and size.
 const BUZZ_MEDIA_MAX_BYTES = 50 * 1024 * 1024;
-const BLOSSOM_AUTH_KIND = 24_242;
-const BLOSSOM_AUTH_TTL_SECONDS = 60;
 const BUZZ_MEDIA_UPLOAD_TIMEOUT_MS = 120_000;
 // Optional NIP-92 fields the relay may describe and accepts back in `imeta`.
 const OPTIONAL_IMETA_FIELDS = ["dim", "blurhash", "thumb", "duration"] as const;
@@ -40,36 +38,6 @@ export type BuzzMediaMessage = {
   text: string;
   imetaTags: string[][];
 };
-
-function resolveBuzzRelayHttpUrl(relayUrl: string): URL {
-  const url = new URL(relayUrl);
-  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-  return url;
-}
-
-function buildBlossomUploadAuthorization(params: {
-  secretKey: Uint8Array;
-  sha256: string;
-  server: string;
-}): string {
-  const now = Math.floor(Date.now() / 1000);
-  const event = finalizeEvent(
-    {
-      kind: BLOSSOM_AUTH_KIND,
-      content: "Upload file",
-      created_at: now,
-      tags: [
-        ["t", "upload"],
-        ["x", params.sha256],
-        ["expiration", String(now + BLOSSOM_AUTH_TTL_SECONDS)],
-        // The relay binds upload auth to its tenant host, port included.
-        ["server", params.server],
-      ],
-    },
-    params.secretKey,
-  );
-  return `Nostr ${Buffer.from(JSON.stringify(event)).toString("base64")}`;
-}
 
 function parseBuzzBlobDescriptor(
   document: Record<string, unknown>,
@@ -112,7 +80,8 @@ async function uploadBuzzBlob(params: {
     init: {
       method: "PUT",
       headers: {
-        Authorization: buildBlossomUploadAuthorization({
+        Authorization: buildBlossomAuthorization({
+          verb: "upload",
           secretKey: decodeBuzzPrivateKey(params.account.privateKey),
           sha256,
           server: relayHttpUrl.host,
