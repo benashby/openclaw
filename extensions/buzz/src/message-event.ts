@@ -24,6 +24,9 @@ const BUZZ_DIFF_CONTEXT_FIELD_MAX_CHARS = 256;
 const BUZZ_DIFF_AGENT_CONTEXT_MAX_CHARS = 4_000;
 const BUZZ_DIFF_AGENT_CONTEXT_TRUNCATED_SUFFIX = "\n...[Buzz diff truncated for model context]";
 const BUZZ_INBOUND_MESSAGE_KIND_SET = new Set<number>(BUZZ_INBOUND_MESSAGE_KINDS);
+// More attachments than any Buzz client sends in one message; extras are ignored.
+const BUZZ_INBOUND_MEDIA_MAX_COUNT = 10;
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/u;
 
 export function isBuzzInboundMessageKind(kind: number): boolean {
   return BUZZ_INBOUND_MESSAGE_KIND_SET.has(kind);
@@ -43,6 +46,17 @@ interface BuzzDiffMetadata {
   altText?: string;
 }
 
+/** One attachment described by a NIP-92 `imeta` tag. */
+export interface BuzzInboundMediaRef {
+  url: string;
+  sha256: string;
+  mimeType?: string;
+  size?: number;
+  fileName?: string;
+  width?: number;
+  height?: number;
+}
+
 export interface BuzzInboundMessage {
   id: string;
   kind: BuzzInboundMessageKind;
@@ -53,6 +67,7 @@ export interface BuzzInboundMessage {
   threadId?: string;
   replyToId?: string;
   mentionedPubkeys: string[];
+  media?: BuzzInboundMediaRef[];
   diff?: BuzzDiffMetadata;
 }
 
@@ -164,6 +179,52 @@ function parseBuzzDiffMetadata(event: Event): BuzzDiffMetadata | null {
   };
 }
 
+function parsePositiveInteger(value: string | undefined): number | undefined {
+  if (!value || !/^[0-9]+$/u.test(value)) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/**
+ * Reads attachments from NIP-92 `imeta` tags. Each entry is "<key> <value>"; an
+ * attachment needs a URL and its sha256, which the relay requires to read it.
+ */
+function parseBuzzImetaTags(event: Event): BuzzInboundMediaRef[] {
+  const media: BuzzInboundMediaRef[] = [];
+  for (const tag of event.tags) {
+    if (tag[0] !== "imeta" || media.length >= BUZZ_INBOUND_MEDIA_MAX_COUNT) {
+      continue;
+    }
+    const fields = new Map<string, string>();
+    for (const entry of tag.slice(1)) {
+      const separator = entry.indexOf(" ");
+      if (separator > 0 && !fields.has(entry.slice(0, separator))) {
+        fields.set(entry.slice(0, separator), entry.slice(separator + 1).trim());
+      }
+    }
+    const url = fields.get("url");
+    const sha256 = fields.get("x")?.toLowerCase();
+    if (!url || !sha256 || !SHA256_HEX_PATTERN.test(sha256)) {
+      continue;
+    }
+    const mimeType = fields.get("m")?.toLowerCase();
+    const size = parsePositiveInteger(fields.get("size"));
+    const fileName = fields.get("filename");
+    const [width, height] = (fields.get("dim") ?? "").split("x").map(parsePositiveInteger);
+    media.push({
+      url,
+      sha256,
+      ...(mimeType ? { mimeType } : {}),
+      ...(size ? { size } : {}),
+      ...(fileName ? { fileName } : {}),
+      ...(width && height ? { width, height } : {}),
+    });
+  }
+  return media;
+}
+
 function boundedDiffContextValue(value: string): string {
   const singleLine = value.replace(/\s+/gu, " ").trim();
   if (singleLine.length <= BUZZ_DIFF_CONTEXT_FIELD_MAX_CHARS) {
@@ -216,7 +277,6 @@ export function formatBuzzMessageForAgent(message: BuzzInboundMessage): string {
 export function parseBuzzMessageEvent(event: Event): BuzzInboundMessage | null {
   if (
     !isBuzzInboundMessageKind(event.kind) ||
-    !event.content.trim() ||
     Buffer.byteLength(event.content, "utf8") >
       (event.kind === BUZZ_DIFF_MESSAGE_KIND
         ? BUZZ_DIFF_CONTENT_MAX_BYTES
@@ -231,6 +291,11 @@ export function parseBuzzMessageEvent(event: Event): BuzzInboundMessage | null {
   const rootId = markerTagValue(event, "root");
   const replyToId = markerTagValue(event, "reply");
   const kind = event.kind as BuzzInboundMessageKind;
+  const media = kind === BUZZ_DIFF_MESSAGE_KIND ? [] : parseBuzzImetaTags(event);
+  // An attachment-only message has no text but is still a message.
+  if (!event.content.trim() && media.length === 0) {
+    return null;
+  }
   const diff = kind === BUZZ_DIFF_MESSAGE_KIND ? parseBuzzDiffMetadata(event) : undefined;
   if (kind === BUZZ_DIFF_MESSAGE_KIND && !diff) {
     return null;
@@ -253,6 +318,7 @@ export function parseBuzzMessageEvent(event: Event): BuzzInboundMessage | null {
     threadId: rootId ?? replyToId,
     replyToId,
     mentionedPubkeys,
+    ...(media.length > 0 ? { media } : {}),
     ...(diff ? { diff } : {}),
   };
 }
