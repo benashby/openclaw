@@ -35,6 +35,8 @@ vi.mock("openclaw/plugin-sdk/logging-core", async (importOriginal) => {
 
 const prepareBuzzMediaMessage = vi.hoisted(() => vi.fn());
 vi.mock("./media.runtime.js", () => ({ prepareBuzzMediaMessage }));
+const resolveBuzzInboundMedia = vi.hoisted(() => vi.fn());
+vi.mock("./media-inbound.runtime.js", () => ({ resolveBuzzInboundMedia }));
 
 vi.mock("openclaw/plugin-sdk/channel-inbound", async (importOriginal) => {
   const actual = await importOriginal<typeof import("openclaw/plugin-sdk/channel-inbound")>();
@@ -1229,5 +1231,21 @@ describe("handleBuzzInbound", () => {
     expect(() => dispatch.record?.onRecordError?.("store failed")).toThrow(
       "Buzz session record failed: store failed",
     );
+  });
+
+  it("downloads attachments only for admitted messages and passes them to the agent", async () => {
+    const runtime = createPluginRuntimeMock();
+    setBuzzRuntime(runtime);
+    const path = "/state/media/inbound/photo.png";
+    resolveBuzzInboundMedia.mockResolvedValue([{ path, contentType: "image/png", kind: "image" }]);
+    const media = [{ url: "http://127.0.0.1:3000/media/a.png", sha256: "a".repeat(64) }];
+    const base = { account: createAccount(), cfg: {}, bus: createBus(), ...createLifecycle() };
+    const receive = (mentionedPubkeys: string[]) =>
+      handleBuzzInbound({ ...base, message: createMessage({ media, mentionedPubkeys }) });
+
+    await receive([]);
+    expect(resolveBuzzInboundMedia).not.toHaveBeenCalled();
+    await receive([BOT_PUBLIC_KEY]);
+    expect(firstDispatch(runtime).ctxPayload.media).toEqual([expect.objectContaining({ path })]);
   });
 });

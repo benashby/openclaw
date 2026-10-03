@@ -156,6 +156,15 @@ export async function handleBuzzInbound(params: {
     return;
   }
 
+  // Attachments are fetched only for admitted messages; reading a blob needs a proof
+  // signed with this account's key, so the agent cannot fetch the URL itself.
+  const inboundMedia = message.media?.length
+    ? await (
+        await import("./media-inbound.runtime.js")
+      ).resolveBuzzInboundMedia({ cfg, account, message, signal })
+    : undefined;
+  params.assertCurrent();
+
   const history = snapshotBuzzPendingHistory({
     historyMap: params.historyMap,
     key: historyKey,
@@ -208,6 +217,7 @@ export async function handleBuzzInbound(params: {
       rawBody: message.text,
       commandBody: supportsTextInterpretation ? message.text : "",
     },
+    ...(inboundMedia?.length ? { media: inboundMedia } : {}),
     access: {
       commands: { authorized: access.commandAccess.authorized },
       mentions: { canDetectMention: true, wasMentioned },
