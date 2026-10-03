@@ -452,6 +452,41 @@ describe("handleBuzzInbound", () => {
     },
   );
 
+  it.each([
+    { roomEntry: undefined, dispatched: true, replyToId: undefined },
+    { roomEntry: { requireMention: true }, dispatched: false, replyToId: undefined },
+  ])(
+    'applies "*" settings to a room without its own entry (room entry $roomEntry)',
+    async ({ roomEntry, dispatched, replyToId }) => {
+      const runtime = createPluginRuntimeMock();
+      setBuzzRuntime(runtime);
+      const bus = createBus();
+      await handleBuzzInbound({
+        account: createAccount({
+          groups: {
+            "*": { requireMention: false, replyToMode: "off" },
+            ...(roomEntry ? { [ROOM_ID]: roomEntry } : {}),
+          },
+        }),
+        cfg: {},
+        bus,
+        message: createMessage({ text: "no mention here" }),
+        ...createLifecycle(),
+      });
+      expect(vi.mocked(runtime.channel.inbound.dispatch).mock.calls.length > 0).toBe(dispatched);
+      if (dispatched) {
+        const dispatch = firstDispatch(runtime);
+        await dispatch.delivery.deliver({ text: "response" }, { kind: "final" });
+        expect(bus.sendText).toHaveBeenCalledWith({
+          channelId: ROOM_ID,
+          threadId: undefined,
+          replyToId,
+          text: "response",
+        });
+      }
+    },
+  );
+
   it("accepts a native Nostr public-key mention", async () => {
     const runtime = createPluginRuntimeMock();
     setBuzzRuntime(runtime);

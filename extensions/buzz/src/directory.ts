@@ -7,7 +7,15 @@ import { queryBuzzDirectoryProfiles, queryBuzzDirectoryRooms } from "./directory
 import { BuzzDirectoryState } from "./directory-state.js";
 import { getActiveBuzzBus } from "./gateway.js";
 import { connectAuthenticatedBuzzRelaySession, parseBuzzAuthTag } from "./relay-auth.js";
+import {
+  isBuzzAutoJoinEnabled,
+  listDisabledBuzzRoomIds,
+  listExplicitBuzzRoomIds,
+  mergeAutoJoinedBuzzRoomIds,
+} from "./room-config.js";
+import { discoverBuzzRoomsOnRelay } from "./room-discovery.js";
 import { queryBuzzRoomMemberships } from "./room-membership-query.js";
+import { BUZZ_MAX_CONFIGURED_ROOMS } from "./subscription-budget.js";
 import { parseBuzzTarget } from "./target.js";
 import {
   assertBuzzAccountAvailable,
@@ -19,9 +27,7 @@ import {
 const DIRECTORY_LIVE_TIMEOUT_MS = 10_000;
 
 function resolveConfiguredRoomIds(account: ReturnType<typeof resolveBuzzAccount>): string[] {
-  return Object.entries(account.config.groups ?? {})
-    .filter(([, config]) => config.enabled !== false)
-    .map(([roomId]) => parseBuzzTarget(roomId));
+  return listExplicitBuzzRoomIds(account.config.groups).map(parseBuzzTarget);
 }
 
 function createConfiguredDirectoryState(params: DirectoryConfigParams): {
@@ -53,11 +59,12 @@ async function loadBuzzDirectoryState(
   options: { refreshRooms: boolean },
 ): Promise<BuzzDirectoryState | null> {
   const configured = createConfiguredDirectoryState(params);
+  const autoJoin = configured ? isBuzzAutoJoinEnabled(configured.account.config.groups) : false;
   if (
     !configured ||
     !configured.account.enabled ||
     !configured.account.configured ||
-    configured.channelIds.length === 0
+    (configured.channelIds.length === 0 && !autoJoin)
   ) {
     return configured?.state ?? null;
   }
@@ -82,6 +89,28 @@ async function loadBuzzDirectoryState(
     signal: timeoutSignal,
   });
   try {
+    if (autoJoin && configured.account.publicKey) {
+      // Same room set the gateway would join: explicit rooms plus Bot-role rooms.
+      const discovered = await discoverBuzzRoomsOnRelay({
+        relay,
+        relayPublicKey,
+        publicKey: configured.account.publicKey,
+        signal: timeoutSignal,
+      });
+      configured.channelIds = mergeAutoJoinedBuzzRoomIds({
+        explicitRoomIds: configured.channelIds,
+        discoveredRoomIds: discovered.map((room) => parseBuzzTarget(room.id)),
+        disabledRoomIds: listDisabledBuzzRoomIds(configured.account.config.groups).map(
+          parseBuzzTarget,
+        ),
+        maxRooms: BUZZ_MAX_CONFIGURED_ROOMS,
+      }).roomIds;
+      configured.state = new BuzzDirectoryState({
+        publicKey: configured.account.publicKey,
+        fallbackProfileName: configured.account.name ?? "OpenClaw",
+        channelIds: configured.channelIds,
+      });
+    }
     await queryBuzzDirectoryRooms({
       relay,
       relayPublicKey,

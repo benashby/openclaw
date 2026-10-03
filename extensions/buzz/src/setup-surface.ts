@@ -9,6 +9,7 @@ import {
   type SecretInput,
 } from "openclaw/plugin-sdk/setup";
 import { waitForBuzzRoomAccess } from "./room-access-wait.js";
+import { BUZZ_ALL_ROOMS_KEY, listExplicitBuzzRoomIds } from "./room-config.js";
 import { discoverBuzzRooms, type BuzzDiscoveredRoom } from "./room-discovery.js";
 import { patchBuzzAccountConfig } from "./setup-core.js";
 import { verifyBuzzAfterSetup } from "./setup-verify.js";
@@ -406,7 +407,7 @@ export function createBuzzSetupWizard(
       const configuredGroups = existingBuzzConfig.groups ?? {};
       const roomIds = await promptRooms({
         rooms: discoveredRooms,
-        configuredRoomIds: Object.keys(configuredGroups),
+        configuredRoomIds: listExplicitBuzzRoomIds(configuredGroups),
         prompter,
       });
       const existingDefault = existingBuzzConfig.defaultTo;
@@ -427,8 +428,12 @@ export function createBuzzSetupWizard(
         accountId,
         patch: {
           ...(useFreshAccessDefaults ? { groupPolicy: "open", groupAllowFrom: undefined } : {}),
-          groups: Object.fromEntries(
-            roomIds.map((roomId) => [
+          groups: Object.fromEntries([
+            // Setup picks explicit rooms; an existing "*" (auto-join) entry stays.
+            ...(configuredGroups[BUZZ_ALL_ROOMS_KEY]
+              ? [[BUZZ_ALL_ROOMS_KEY, configuredGroups[BUZZ_ALL_ROOMS_KEY]] as const]
+              : []),
+            ...roomIds.map((roomId) => [
               roomId,
               {
                 ...configuredGroups[roomId],
@@ -436,7 +441,7 @@ export function createBuzzSetupWizard(
                 requireMention: configuredGroups[roomId]?.requireMention ?? !useFreshAccessDefaults,
               },
             ]),
-          ),
+          ]),
           defaultTo,
         },
       });

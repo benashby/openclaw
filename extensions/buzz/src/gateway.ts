@@ -10,7 +10,16 @@ import type { ChannelGatewayContext } from "../runtime-api.js";
 import { sendBuzzTextOneShot, startBuzzBus, type BuzzBus } from "./buzz-bus.js";
 import { handleBuzzInbound } from "./inbound.js";
 import { openBuzzRecoveryWatermarkStore, resolveBuzzRecoverySince } from "./recovery-watermark.js";
+import {
+  isBuzzAutoJoinEnabled,
+  listDisabledBuzzRoomIds,
+  listExplicitBuzzRoomIds,
+  mergeAutoJoinedBuzzRoomIds,
+  resolveBuzzRoomConfig,
+} from "./room-config.js";
+import { discoverBuzzRooms } from "./room-discovery.js";
 import { getBuzzRuntime } from "./runtime.js";
+import { BUZZ_MAX_CONFIGURED_ROOMS } from "./subscription-budget.js";
 import { buildBuzzTarget, isConfiguredBuzzChannel, parseBuzzTarget } from "./target.js";
 import {
   assertBuzzAccountAvailable,
@@ -63,6 +72,31 @@ function resolveBuzzProfileName(params: {
     : "OpenClaw";
 }
 
+async function resolveAutoJoinedChannelIds(params: {
+  account: ResolvedBuzzAccount;
+  explicitChannelIds: string[];
+  disabledChannelIds: string[];
+  signal: AbortSignal;
+  onDropped: (dropped: number) => void;
+}): Promise<string[]> {
+  const rooms = await discoverBuzzRooms({
+    relayUrl: params.account.relayUrl,
+    privateKey: params.account.privateKey,
+    authTag: params.account.authTag,
+    signal: params.signal,
+  });
+  const { roomIds, dropped } = mergeAutoJoinedBuzzRoomIds({
+    explicitRoomIds: params.explicitChannelIds,
+    discoveredRoomIds: rooms.map((room) => parseBuzzTarget(room.id)),
+    disabledRoomIds: params.disabledChannelIds,
+    maxRooms: BUZZ_MAX_CONFIGURED_ROOMS,
+  });
+  if (dropped > 0) {
+    params.onDropped(dropped);
+  }
+  return roomIds;
+}
+
 export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<ResolvedBuzzAccount>) {
   const channelRuntime = ctx.channelRuntime as PluginRuntime["channel"] | undefined;
   const buildContext = channelRuntime?.inbound.buildContext;
@@ -71,18 +105,16 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
   if (!account.configured) {
     throw new Error(`Buzz is not configured for account "${account.accountId}"`);
   }
-  const channelIds = Object.entries(account.config.groups ?? {})
-    .filter(([, config]) => config.enabled !== false)
-    .map(([channelId]) => parseBuzzTarget(channelId));
-  if (channelIds.length === 0) {
+  const autoJoin = isBuzzAutoJoinEnabled(account.config.groups);
+  const explicitChannelIds = listExplicitBuzzRoomIds(account.config.groups).map(parseBuzzTarget);
+  const disabledChannelIds = listDisabledBuzzRoomIds(account.config.groups).map(parseBuzzTarget);
+  if (explicitChannelIds.length === 0 && !autoJoin) {
     const { configPath } = resolveBuzzAccountConfig({
       cfg: ctx.cfg,
       accountId: account.accountId,
     });
     throw new Error(`Buzz requires at least one enabled ${configPath}.groups entry`);
   }
-  const configuredChannelIds = new Set(channelIds);
-  const profileName = resolveBuzzProfileName({ cfg: ctx.cfg, account, channelIds });
 
   const watermarkStore = openBuzzRecoveryWatermarkStore({ accountId: account.accountId });
 
@@ -97,6 +129,23 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
       reportBusFailure = resolve;
     });
     try {
+      // With a "*" entry the room set is rebuilt from the relay on every cycle, so a
+      // membership notification that triggers a rebuild picks up newly added rooms.
+      const channelIds = autoJoin
+        ? await resolveAutoJoinedChannelIds({
+            account,
+            explicitChannelIds,
+            disabledChannelIds,
+            signal: ctx.abortSignal,
+            onDropped: (dropped) => {
+              ctx.log?.warn?.(
+                `[${account.accountId}] Buzz auto-join skipped ${dropped} room(s) over the ${BUZZ_MAX_CONFIGURED_ROOMS}-room limit`,
+              );
+            },
+          })
+        : explicitChannelIds;
+      const configuredChannelIds = new Set(channelIds);
+      const profileName = resolveBuzzProfileName({ cfg: ctx.cfg, account, channelIds });
       const nowSeconds = Math.floor(Date.now() / 1000);
       const sinceByRoom = await resolveBuzzRecoverySince({
         store: watermarkStore,
@@ -111,6 +160,8 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
         authTag: account.authTag,
         profileName,
         channelIds,
+        autoJoin,
+        ignoredRoomIds: disabledChannelIds,
         since: (channelId) => sinceByRoom.get(channelId) ?? nowSeconds,
         signal: ctx.abortSignal,
         onMessage: async (message, sessionBus, signal, assertCurrent) => {
@@ -327,7 +378,9 @@ export async function sendBuzzTyping(params: {
     return;
   }
   const channelId = parseBuzzTarget(params.to);
-  const replyToMode = account.config.groups?.[channelId]?.replyToMode ?? account.config.replyToMode;
+  const replyToMode =
+    resolveBuzzRoomConfig(account.config.groups, channelId)?.replyToMode ??
+    account.config.replyToMode;
   await bus.sendTyping({
     channelId,
     threadId:

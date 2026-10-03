@@ -240,6 +240,10 @@ export async function startBuzzBus(options: {
   privateKey: string;
   authTag?: string;
   channelIds: string[];
+  /** Rebuild when the bot is added to a room outside `channelIds` (a `groups["*"]` entry). */
+  autoJoin?: boolean;
+  /** Rooms auto-join must never start (explicitly disabled in config). */
+  ignoredRoomIds?: string[];
   since?: (channelId: string) => number;
   onMessage: (
     message: BuzzInboundMessage,
@@ -437,6 +441,8 @@ export async function startBuzzBus(options: {
       relayPublicKey,
       botPublicKey: publicKey,
       configuredRoomIds: options.channelIds,
+      autoJoin: options.autoJoin,
+      ignoredRoomIds: options.ignoredRoomIds,
       since: sessionStartedAt,
       signal,
       onNotification: (notification) =>
