@@ -78,11 +78,14 @@ async function resolveAutoJoinedChannelIds(params: {
   disabledChannelIds: string[];
   signal: AbortSignal;
   onDropped: (dropped: number) => void;
-}): Promise<string[]> {
+}): Promise<{ channelIds: string[]; directRoomIds: string[] }> {
+  // Auto-join also takes DMs: opening a DM with the bot makes it a plain member,
+  // and nobody can promote it to the Bot role there.
   const rooms = await discoverBuzzRooms({
     relayUrl: params.account.relayUrl,
     privateKey: params.account.privateKey,
     authTag: params.account.authTag,
+    includeDirectMessages: true,
     signal: params.signal,
   });
   const { roomIds, dropped } = mergeAutoJoinedBuzzRoomIds({
@@ -94,7 +97,14 @@ async function resolveAutoJoinedChannelIds(params: {
   if (dropped > 0) {
     params.onDropped(dropped);
   }
-  return roomIds;
+  const joined = new Set(roomIds);
+  return {
+    channelIds: roomIds,
+    directRoomIds: rooms
+      .filter((room) => room.direct === true)
+      .map((room) => parseBuzzTarget(room.id))
+      .filter((roomId) => joined.has(roomId)),
+  };
 }
 
 export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<ResolvedBuzzAccount>) {
@@ -131,7 +141,7 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
     try {
       // With a "*" entry the room set is rebuilt from the relay on every cycle, so a
       // membership notification that triggers a rebuild picks up newly added rooms.
-      const channelIds = autoJoin
+      const { channelIds, directRoomIds } = autoJoin
         ? await resolveAutoJoinedChannelIds({
             account,
             explicitChannelIds,
@@ -143,7 +153,7 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
               );
             },
           })
-        : explicitChannelIds;
+        : { channelIds: explicitChannelIds, directRoomIds: [] };
       const configuredChannelIds = new Set(channelIds);
       const profileName = resolveBuzzProfileName({ cfg: ctx.cfg, account, channelIds });
       const nowSeconds = Math.floor(Date.now() / 1000);
@@ -162,6 +172,7 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
         channelIds,
         autoJoin,
         ignoredRoomIds: disabledChannelIds,
+        directRoomIds,
         since: (channelId) => sinceByRoom.get(channelId) ?? nowSeconds,
         signal: ctx.abortSignal,
         onMessage: async (message, sessionBus, signal, assertCurrent) => {
@@ -379,8 +390,9 @@ export async function sendBuzzTyping(params: {
   }
   const channelId = parseBuzzTarget(params.to);
   const replyToMode =
-    resolveBuzzRoomConfig(account.config.groups, channelId)?.replyToMode ??
-    account.config.replyToMode;
+    resolveBuzzRoomConfig(account.config.groups, channelId, {
+      direct: bus.isDirectRoom?.(channelId) === true,
+    })?.replyToMode ?? account.config.replyToMode;
   await bus.sendTyping({
     channelId,
     threadId:

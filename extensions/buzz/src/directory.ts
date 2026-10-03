@@ -90,11 +90,12 @@ async function loadBuzzDirectoryState(
   });
   try {
     if (autoJoin && configured.account.publicKey) {
-      // Same room set the gateway would join: explicit rooms plus Bot-role rooms.
+      // Same room set the gateway would join: explicit rooms, Bot-role rooms and DMs.
       const discovered = await discoverBuzzRoomsOnRelay({
         relay,
         relayPublicKey,
         publicKey: configured.account.publicKey,
+        includeDirectMessages: true,
         signal: timeoutSignal,
       });
       configured.channelIds = mergeAutoJoinedBuzzRoomIds({

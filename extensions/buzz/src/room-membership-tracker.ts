@@ -57,6 +57,11 @@ export async function createBuzzRoomMembershipTracker(params: {
   relay: Relay;
   relayPublicKey: string;
   channelIds: string[];
+  /**
+   * DM rooms among `channelIds`. Buzz gives a bot only a plain member role in a
+   * DM, so there membership stands in for the Bot role.
+   */
+  directRoomIds?: readonly string[];
   botPublicKey: string;
   since: number;
   messageSince: (channelId: string) => number;
@@ -96,6 +101,11 @@ export async function createBuzzRoomMembershipTracker(params: {
   const refreshes = new Map<string, RefreshState>();
   const restoringRooms = new Map<string, RestoringRoom>();
   let membershipQueryTail = Promise.resolve();
+  const directRoomIds = new Set(params.directRoomIds ?? []);
+  const hasBotAccess = (membership: BuzzRoomMembership | undefined): boolean =>
+    membership !== undefined &&
+    membership.members.has(params.botPublicKey) &&
+    (membership.roles.get(params.botPublicKey) === "bot" || directRoomIds.has(membership.roomId));
   const memberships = await queryBuzzRoomMemberships(params);
   params.signal?.throwIfAborted();
   const effectiveMemberships = (): ReadonlyMap<string, BuzzRoomMembership> => {
@@ -146,10 +156,7 @@ export async function createBuzzRoomMembershipTracker(params: {
     params.relay.close();
   };
   const replaceMembership = (membership: BuzzRoomMembership) => {
-    if (
-      membership.roles.get(params.botPublicKey) !== "bot" ||
-      !membership.members.has(params.botPublicKey)
-    ) {
+    if (!hasBotAccess(membership)) {
       blockedRooms.add(membership.roomId);
       throw new Error(`Buzz bot no longer has the Bot role in room ${membership.roomId}`);
     }
@@ -334,7 +341,7 @@ export async function createBuzzRoomMembershipTracker(params: {
   const skippedRooms = new Set<string>();
   const initialRoomIds: string[] = [];
   for (const channelId of params.channelIds) {
-    if (memberships.get(channelId)?.roles.get(params.botPublicKey) !== "bot") {
+    if (!hasBotAccess(memberships.get(channelId))) {
       skippedRooms.add(channelId);
       params.onRoomUnavailable?.(
         new Error(`Buzz bot does not have the Bot role in configured room ${channelId}`),
@@ -519,7 +526,7 @@ export async function createBuzzRoomMembershipTracker(params: {
       if (!refreshed) {
         return;
       }
-      if (refreshed.roles.get(params.botPublicKey) !== "bot") {
+      if (!hasBotAccess(refreshed)) {
         memberships.set(channelId, refreshed);
         params.onMembershipsChanged?.(effectiveMemberships());
         return;

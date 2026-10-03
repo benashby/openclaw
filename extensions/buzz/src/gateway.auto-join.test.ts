@@ -151,6 +151,41 @@ it("does not join a room where the bot is only a member", async () => {
   }
 }, 15000);
 
+function markRoomAsDirectMessage(createdAt: number) {
+  const index = fixture.events.findIndex((event) => event.kind === 39000);
+  fixture.events.splice(
+    index,
+    1,
+    fixture.signRelay({
+      kind: 39000,
+      created_at: createdAt,
+      content: "",
+      tags: [
+        ["d", fixture.roomId],
+        ["name", "DM"],
+        ["private"],
+        ["hidden"],
+        ["closed"],
+        ["t", "dm"],
+      ],
+    }),
+  );
+}
+
+it("answers a DM where the bot is only a member, without a mention", async () => {
+  const startedAt = Math.floor(Date.now() / 1000);
+  setRosterRole("member", startedAt);
+  markRoomAsDirectMessage(startedAt);
+  const gateway = await runGateway({ "*": { requireMention: true } });
+  try {
+    await gateway.ready(0);
+    fixture.sendMessage("hello in a dm");
+    await vi.waitFor(() => expect(gateway.handled).toContain("hello in a dm"));
+  } finally {
+    await gateway.stop();
+  }
+}, 15000);
+
 it("starts a room live when the bot is added with the Bot role", async () => {
   const startedAt = Math.floor(Date.now() / 1000);
   setRosterRole("member", startedAt);

@@ -175,6 +175,83 @@ describe("discoverBuzzRooms", () => {
     expect(relayMocks.close).toHaveBeenCalledOnce();
   });
 
+  it("adds DM rooms where the bot is a plain member when asked to", async () => {
+    const publicKey = getPublicKey(Uint8Array.from(Buffer.from(PRIVATE_KEY, "hex")));
+    const ROOM_C = "2b0c5f6e-1d3a-4c7b-9e8f-0a1b2c3d4e5f";
+    const membership = (id: string, room: string, role: string) => ({
+      id,
+      kind: 39002,
+      pubkey: RELAY_PUBLIC_KEY,
+      created_at: 1,
+      content: "",
+      sig: "sig",
+      tags: [
+        ["d", room],
+        ["p", publicKey, "", role],
+      ],
+    });
+    const metadata = (id: string, room: string, tags: string[][]) => ({
+      id,
+      kind: 39000,
+      pubkey: RELAY_PUBLIC_KEY,
+      created_at: 2,
+      content: "",
+      sig: "sig",
+      tags: [["d", room], ...tags],
+    });
+    relayMocks.subscribe
+      .mockImplementationOnce(
+        (
+          _filters: unknown,
+          handlers: { onevent: (event: unknown) => void; oneose: () => void },
+        ) => {
+          handlers.onevent(membership("member-a", ROOM_A, "bot"));
+          handlers.onevent(membership("member-b", ROOM_B, "member"));
+          handlers.onevent(membership("member-c", ROOM_C, "member"));
+          handlers.oneose();
+          return { close: vi.fn() };
+        },
+      )
+      .mockImplementationOnce(
+        (
+          _filters: unknown,
+          handlers: { onevent: (event: unknown) => void; oneose: () => void },
+        ) => {
+          handlers.onevent(metadata("metadata-a", ROOM_A, [["name", "Agent room"]]));
+          handlers.onevent(
+            metadata("metadata-b", ROOM_B, [["name", "DM"], ["hidden"], ["t", "dm"]]),
+          );
+          // A plain-member room that is not a DM still needs the Bot role.
+          handlers.onevent(
+            metadata("metadata-c", ROOM_C, [
+              ["name", "Lobby"],
+              ["t", "stream"],
+            ]),
+          );
+          handlers.oneose();
+          return { close: vi.fn() };
+        },
+      );
+
+    const { discoverBuzzRooms } = await import("./room-discovery.js");
+    await expect(
+      discoverBuzzRooms({
+        relayUrl: "wss://buzz.example.com",
+        privateKey: PRIVATE_KEY,
+        includeDirectMessages: true,
+      }),
+    ).resolves.toEqual([
+      { id: ROOM_A, name: "Agent room" },
+      { id: ROOM_B, name: "DM", direct: true },
+    ]);
+    expect(relayMocks.filters[1]).toEqual({
+      kinds: [39000],
+      authors: [RELAY_PUBLIC_KEY],
+      "#d": [ROOM_C, ROOM_A, ROOM_B].toSorted(),
+      limit: 3,
+    });
+  });
+
   it("applies one timeout budget to authentication and closes the relay", async () => {
     relayMocks.auth.mockImplementationOnce(
       async (_signAuth) => await new Promise<string>(() => {}),

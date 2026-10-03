@@ -13,7 +13,14 @@ export type BuzzDiscoveredRoom = {
   id: string;
   name: string;
   about?: string;
+  /** A direct-message room the bot holds a plain member role in, not the Bot role. */
+  direct?: true;
 };
+
+/** Buzz marks a direct-message room with a `t` tag of `dm` in its kind-39000 metadata. */
+export function isBuzzDirectMessageRoomMetadata(event: Pick<Event, "tags">): boolean {
+  return event.tags.some((tag) => tag[0] === "t" && tag[1] === "dm");
+}
 
 function tagValue(event: Event, name: string): string | undefined {
   return event.tags.find((tag) => tag[0] === name)?.[1];
@@ -46,6 +53,11 @@ export async function discoverBuzzRoomsOnRelay(params: {
   relay: Relay;
   relayPublicKey: string;
   publicKey: string;
+  /**
+   * Also return DM rooms where the bot is a plain member. Buzz never grants a
+   * Bot role in a DM, so opening one with a bot only ever makes it a member.
+   */
+  includeDirectMessages?: boolean;
   timeoutMs?: number;
   signal?: AbortSignal;
 }): Promise<BuzzDiscoveredRoom[]> {
@@ -61,15 +73,21 @@ export async function discoverBuzzRoomsOnRelay(params: {
     timeoutMs,
     signal: params.signal,
   });
-  const roomIds = [
-    ...new Set(
-      membershipEvents
-        .map((event) => parseBuzzRoomMembershipEvent(event, params.relayPublicKey))
-        .filter((membership) => membership?.roles.get(params.publicKey) === "bot")
-        .map((membership) => membership?.roomId)
-        .filter((roomId): roomId is string => Boolean(roomId?.match(BUZZ_CHANNEL_ID_PATTERN))),
-    ),
-  ].toSorted();
+  const botRoomIds = new Set<string>();
+  const memberRoomIds = new Set<string>();
+  for (const event of membershipEvents) {
+    const membership = parseBuzzRoomMembershipEvent(event, params.relayPublicKey);
+    if (!membership?.roomId.match(BUZZ_CHANNEL_ID_PATTERN)) {
+      continue;
+    }
+    if (membership.roles.get(params.publicKey) === "bot") {
+      botRoomIds.add(membership.roomId);
+    } else if (params.includeDirectMessages && membership.members.has(params.publicKey)) {
+      // Kept only if the metadata below says the room is a DM.
+      memberRoomIds.add(membership.roomId);
+    }
+  }
+  const roomIds = [...new Set([...botRoomIds, ...memberRoomIds])].toSorted();
   if (roomIds.length === 0) {
     return [];
   }
@@ -109,6 +127,10 @@ export async function discoverBuzzRoomsOnRelay(params: {
     if (metadata?.tags.some((tag) => tag[0] === "archived" && tag[1] === "true")) {
       return [];
     }
+    const direct = !botRoomIds.has(id);
+    if (direct && !(metadata && isBuzzDirectMessageRoomMetadata(metadata))) {
+      return [];
+    }
     const name = metadata ? tagValue(metadata, "name")?.trim() : undefined;
     const about = metadata ? tagValue(metadata, "about")?.trim() : undefined;
     const room: BuzzDiscoveredRoom = {
@@ -118,6 +140,9 @@ export async function discoverBuzzRoomsOnRelay(params: {
     if (about) {
       room.about = about;
     }
+    if (direct) {
+      room.direct = true;
+    }
     return [room];
   });
 }
@@ -126,6 +151,7 @@ export async function discoverBuzzRooms(params: {
   relayUrl: string;
   privateKey: string;
   authTag?: string;
+  includeDirectMessages?: boolean;
   timeoutMs?: number;
   signal?: AbortSignal;
 }): Promise<BuzzDiscoveredRoom[]> {
@@ -145,11 +171,13 @@ export async function discoverBuzzRooms(params: {
 
   try {
     // Buzz's relay publishes authenticated kind-39002 membership lists for room
-    // discovery. Require the explicit Bot role before setup or probes accept a room.
+    // discovery. Require the explicit Bot role before setup or probes accept a room;
+    // only auto-join opts in to DMs, where a plain member role is all Buzz grants.
     return await discoverBuzzRoomsOnRelay({
       relay,
       relayPublicKey,
       publicKey,
+      includeDirectMessages: params.includeDirectMessages,
       timeoutMs,
       signal,
     });
