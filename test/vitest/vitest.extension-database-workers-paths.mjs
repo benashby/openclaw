@@ -116,6 +116,7 @@ export const databaseWorkerExtensionTestFiles = [
   "extensions/browser/src/browser-dashboard.test.ts",
   "extensions/buzz/src/buzz-bus.socket.test.ts",
   "extensions/buzz/src/buzz-bus.lifecycle.test.ts",
+  "extensions/buzz/src/gateway.auto-join.test.ts",
   "extensions/buzz/src/gateway.cold-start-recovery.test.ts",
   "extensions/clickclack/src/discussions/service-state-persistence.test.ts",
   "extensions/clickclack/src/sender-authority.test.ts",

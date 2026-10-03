@@ -143,10 +143,43 @@ OpenClaw also registers the same public identity in Buzz's agent directory. It
 preserves an existing agent-directory profile and channel-add policy. For a new
 profile it allows authorized Buzz users to add the identity. This lets Buzz
 assign the **Bot** role when the identity is invited to additional rooms
-instead of treating it as a normal member. OpenClaw still receives messages
-only from rooms explicitly selected in that account's `groups`: use
-`channels.buzz.groups` for the implicit root identity or
-`channels.buzz.accounts.<id>.groups` for a nested identity.
+instead of treating it as a normal member. OpenClaw receives messages only from
+rooms selected in that account's `groups`: use `channels.buzz.groups` for the
+implicit root identity or `channels.buzz.accounts.<id>.groups` for a nested
+identity.
+
+### Join every room the bot is added to
+
+A `"*"` entry in `groups` applies to every room where the identity holds the
+**Bot** role, so you do not have to list each room. When someone adds the bot to
+a room, OpenClaw rebuilds its subscriptions and starts answering there within a
+few seconds, without a Gateway restart. It starts at the current time and does
+not replay the room's older messages. Removing the bot, or its Bot role, stops
+the room again.
+
+```json5
+{
+  channels: {
+    buzz: {
+      accounts: {
+        support: {
+          groups: {
+            "*": { requireMention: true },
+            // A room's own entry overrides "*" field by field.
+            "7c4a6d2a-2ed9-4b4e-a5e2-4d705ee9b34c": { requireMention: false },
+            // enabled: false keeps the bot out of a room even with "*".
+            "1f0e9b3c-6a7d-4e21-9c55-0b8d2f4a6e13": { enabled: false },
+          },
+        },
+      },
+    },
+  },
+}
+```
+
+Rooms where the identity is only a normal member are not joined. The usual
+per-account room limit still applies, and explicitly listed rooms take
+precedence when it is reached.
 
 Buzz displays `owner unavailable` when the bot profile has no valid NIP-OA
 owner attestation. This does not mean room access failed. Configure the selected

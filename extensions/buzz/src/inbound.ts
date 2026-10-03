@@ -19,6 +19,7 @@ import {
   type BuzzInboundMessage,
 } from "./message-event.js";
 import { recordBuzzPendingHistory, snapshotBuzzPendingHistory } from "./pending-history.js";
+import { resolveBuzzRoomConfig } from "./room-config.js";
 import { getBuzzRuntime } from "./runtime.js";
 import { buildBuzzTarget, parseBuzzTarget } from "./target.js";
 import type { ResolvedBuzzAccount } from "./types.js";
@@ -58,7 +59,7 @@ export async function handleBuzzInbound(params: {
   // thread rooted at itself (the reply opens it there). Inside a thread, an identity that
   // has already taken part needs no mention, unless the message mentions another bot.
   // A room's own setting overrides the account's, for this and for replyToMode.
-  const groupConfig = account.config.groups?.[channelId];
+  const groupConfig = resolveBuzzRoomConfig(account.config.groups, channelId);
   const threadSessions = (groupConfig?.threadSessions ?? account.config.threadSessions) === true;
   const replyToMode = groupConfig?.replyToMode ?? account.config.replyToMode;
   const mentionsOtherBot =
