@@ -3,6 +3,7 @@ import type {
   DirectoryConfigParams,
 } from "openclaw/plugin-sdk/directory-runtime";
 import { applyBuzzDirectoryQueryAndLimit } from "./directory-query.js";
+import { listExplicitBuzzRoomIds } from "./room-config.js";
 import { buildBuzzTarget, parseBuzzTarget } from "./target.js";
 import { resolveBuzzAccount } from "./types.js";
 
@@ -16,9 +17,8 @@ export async function listBuzzDirectoryGroupsFromConfig(
   params: DirectoryConfigParams,
 ): Promise<ChannelDirectoryEntry[]> {
   const account = resolveBuzzAccount({ cfg: params.cfg, accountId: params.accountId });
-  const entries = Object.entries(account.config.groups ?? {})
-    .filter(([, config]) => config.enabled !== false)
-    .map(([roomId]) => {
+  const entries = listExplicitBuzzRoomIds(account.config.groups)
+    .map((roomId) => {
       const id = parseBuzzTarget(roomId);
       return {
         kind: "group",

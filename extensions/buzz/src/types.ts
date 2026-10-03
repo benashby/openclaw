@@ -10,6 +10,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { resolveSecretInputString } from "openclaw/plugin-sdk/secret-input";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { BuzzAccountIdSchema, type BuzzConfig, type BuzzConfigInput } from "./config-schema.js";
+import { BUZZ_ALL_ROOMS_KEY } from "./room-config.js";
 import { parseBuzzTarget } from "./target.js";
 
 export interface ResolvedBuzzAccount {
@@ -83,7 +84,10 @@ function normalizeBuzzGroups(groups: BuzzConfigInput["groups"]): BuzzConfig["gro
     return undefined;
   }
   return Object.fromEntries(
-    Object.entries(groups).map(([channelId, group]) => [parseBuzzTarget(channelId), group]),
+    Object.entries(groups).map(([channelId, group]) => [
+      channelId === BUZZ_ALL_ROOMS_KEY ? channelId : parseBuzzTarget(channelId),
+      group,
+    ]),
   );
 }
 

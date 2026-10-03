@@ -45,7 +45,12 @@ const BuzzAccountConfigSchema = z
     groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     groups: z
       .record(
-        z.string().regex(BUZZ_CHANNEL_ID_PATTERN, "Buzz group key must be a channel UUID"),
+        z
+          .string()
+          .regex(
+            new RegExp(`^(?:\\*|${BUZZ_CHANNEL_ID_PATTERN.source.slice(1, -1)})$`, "u"),
+            'Buzz group key must be a channel UUID or "*"',
+          ),
         BuzzGroupConfigSchema,
       )
       .optional(),
@@ -76,6 +81,11 @@ const roomReplyToModeHint = {
   help: "Override Reply To Mode for this room. Off posts the bot's replies and typing indicator in the room itself instead of a thread under the triggering message; all threads them. Omit to use the account setting.",
 };
 
+const roomsHint = {
+  label: "Rooms",
+  help: 'Rooms this identity answers in, keyed by room UUID. A "*" entry applies to every room where the bot holds the Bot role, so the bot joins them automatically, including rooms it is added to later. A room\'s own entry overrides "*" field by field, and enabled=false on a room keeps the bot out of it.',
+};
+
 const roomThreadSessionsHint = {
   label: "Thread Sessions",
   help: "Override Thread Sessions for this room. False keeps one session for the whole room, so every message continues it and /new resets it; true gives each thread its own session. Omit to use the account setting.",
@@ -90,6 +100,8 @@ export const BuzzConfigSchema = buildChannelConfigSchema(RawBuzzConfigSchema, {
     "groups.*.threadSessions": roomThreadSessionsHint,
     "accounts.*.groups.*.threadSessions": roomThreadSessionsHint,
     "groups.*.replyToMode": roomReplyToModeHint,
+    groups: roomsHint,
+    "accounts.*.groups": roomsHint,
     "accounts.*.groups.*.replyToMode": roomReplyToModeHint,
   },
 });

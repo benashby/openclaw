@@ -46,12 +46,15 @@ export function startBuzzRoomMembershipNotifications(params: {
   relayPublicKey: string;
   botPublicKey: string;
   configuredRoomIds: string[];
+  autoJoin?: boolean;
+  ignoredRoomIds?: string[];
   since: number;
   signal?: AbortSignal;
   onNotification?: (notification: BuzzRoomMembershipNotification) => boolean;
   onFatalError: (error: Error) => void;
 }): void {
   const configuredRoomIds = new Set(params.configuredRoomIds.map(parseBuzzTarget));
+  const ignoredRoomIds = new Set((params.ignoredRoomIds ?? []).map(parseBuzzTarget));
   const subscription = openBuzzRelaySubscription(
     params.relay,
     [
@@ -69,15 +72,28 @@ export function startBuzzRoomMembershipNotifications(params: {
           relayPublicKey: params.relayPublicKey,
           botPublicKey: params.botPublicKey,
         });
+        if (!notification) {
+          return;
+        }
+        if (configuredRoomIds.has(notification.roomId)) {
+          if (!params.onNotification?.(notification)) {
+            params.onFatalError(
+              new Error(
+                `Buzz room ${notification.roomId} membership changed; rebuilding subscriptions`,
+              ),
+            );
+          }
+          return;
+        }
+        // Auto-join: the rebuild rediscovers Bot-role rooms and starts this one at the
+        // current time. A plain member add is rediscovered too and simply not joined.
         if (
-          notification &&
-          configuredRoomIds.has(notification.roomId) &&
-          !params.onNotification?.(notification)
+          params.autoJoin === true &&
+          notification.kind === BUZZ_MEMBER_ADDED_NOTIFICATION_KIND &&
+          !ignoredRoomIds.has(notification.roomId)
         ) {
           params.onFatalError(
-            new Error(
-              `Buzz room ${notification.roomId} membership changed; rebuilding subscriptions`,
-            ),
+            new Error(`Buzz room ${notification.roomId} added this bot; rebuilding subscriptions`),
           );
         }
       },
