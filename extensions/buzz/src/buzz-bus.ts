@@ -53,6 +53,8 @@ export interface BuzzBus {
    * connection, or published a message into it (answered from the relay after a restart).
    */
   isThreadParticipant: (params: { channelId: string; threadRootId: string }) => Promise<boolean>;
+  /** Whether the room is a DM this identity joined as a plain member. */
+  isDirectRoom?: (channelId: string) => boolean;
   sendText: (params: {
     channelId: string;
     text: string;
@@ -244,6 +246,8 @@ export async function startBuzzBus(options: {
   autoJoin?: boolean;
   /** Rooms auto-join must never start (explicitly disabled in config). */
   ignoredRoomIds?: string[];
+  /** DM rooms among `channelIds`, where a plain member role stands in for the Bot role. */
+  directRoomIds?: string[];
   since?: (channelId: string) => number;
   onMessage: (
     message: BuzzInboundMessage,
@@ -347,11 +351,13 @@ export async function startBuzzBus(options: {
       }
     }
   };
+  const directRoomIds = new Set((options.directRoomIds ?? []).map((id) => id.toLowerCase()));
   const bus: BuzzBus = {
     publicKey,
     directory,
     refreshDirectory: async () => await directoryRelay?.refreshRooms(options.channelIds),
     noteThreadParticipation,
+    isDirectRoom: (channelId) => directRoomIds.has(channelId.toLowerCase()),
     isThreadParticipant: async ({ channelId, threadRootId }) => {
       signal.throwIfAborted();
       if (participatedThreadRoots.has(threadRootId)) {
@@ -527,6 +533,7 @@ export async function startBuzzBus(options: {
             relay,
             relayPublicKey,
             channelIds: activeChannelIds,
+            directRoomIds: options.directRoomIds,
             botPublicKey: publicKey,
             since: sessionStartedAt,
             messageSince: (channelId) => options.since?.(channelId) ?? sessionStartedAt,

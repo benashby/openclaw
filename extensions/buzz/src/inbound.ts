@@ -59,7 +59,9 @@ export async function handleBuzzInbound(params: {
   // thread rooted at itself (the reply opens it there). Inside a thread, an identity that
   // has already taken part needs no mention, unless the message mentions another bot.
   // A room's own setting overrides the account's, for this and for replyToMode.
-  const groupConfig = resolveBuzzRoomConfig(account.config.groups, channelId);
+  const groupConfig = resolveBuzzRoomConfig(account.config.groups, channelId, {
+    direct: bus.isDirectRoom?.(channelId) === true,
+  });
   const threadSessions = (groupConfig?.threadSessions ?? account.config.threadSessions) === true;
   const replyToMode = groupConfig?.replyToMode ?? account.config.replyToMode;
   const mentionsOtherBot =

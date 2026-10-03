@@ -28,6 +28,29 @@ describe("Buzz room config", () => {
     expect(resolveBuzzRoomConfig({ [ROOM]: { requireMention: false } }, OTHER)).toBeUndefined();
   });
 
+  it("answers a DM without a mention, in one session, unless the room says otherwise", () => {
+    const groups = {
+      "*": { requireMention: true, threadSessions: true, replyToMode: "all" as const },
+      [OTHER]: { threadSessions: true },
+    };
+
+    expect(resolveBuzzRoomConfig(groups, ROOM, { direct: true })).toEqual({
+      requireMention: false,
+      threadSessions: false,
+      replyToMode: "off",
+    });
+    expect(resolveBuzzRoomConfig(groups, OTHER, { direct: true })).toEqual({
+      requireMention: false,
+      threadSessions: true,
+      replyToMode: "off",
+    });
+    expect(resolveBuzzRoomConfig(undefined, ROOM, { direct: true })).toEqual({
+      requireMention: false,
+      threadSessions: false,
+      replyToMode: "off",
+    });
+  });
+
   it('treats "*" as auto-join and keeps it out of the explicit room lists', () => {
     const groups = { "*": {}, [ROOM]: {}, [OTHER]: { enabled: false } };
 

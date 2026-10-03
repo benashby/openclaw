@@ -27,18 +27,31 @@ export function listDisabledBuzzRoomIds(groups: BuzzGroups): string[] {
     .map(([roomId]) => roomId);
 }
 
-/** The settings that apply in one room: `"*"` defaults, then the room's own entry. */
+// A DM is a conversation with one person, so it answers without a mention and
+// stays one session that replies in the room, whatever `"*"` says for rooms.
+const BUZZ_DIRECT_ROOM_DEFAULTS = {
+  requireMention: false,
+  threadSessions: false,
+  replyToMode: "off",
+} as const satisfies BuzzRoomConfig;
+
+/**
+ * The settings that apply in one room: `"*"` defaults, then DM defaults for a
+ * direct-message room, then the room's own entry.
+ */
 export function resolveBuzzRoomConfig(
   groups: BuzzGroups,
   channelId: string,
+  options?: { direct?: boolean },
 ): BuzzRoomConfig | undefined {
   const wildcard = groups?.[BUZZ_ALL_ROOMS_KEY];
   const room = groups?.[channelId];
-  if (!wildcard && !room) {
+  const direct = options?.direct === true;
+  if (!wildcard && !room && !direct) {
     return undefined;
   }
   const { enabled: _wildcardEnabled, ...defaults } = wildcard ?? {};
-  return { ...defaults, ...room };
+  return { ...defaults, ...(direct ? BUZZ_DIRECT_ROOM_DEFAULTS : {}), ...room };
 }
 
 /**
