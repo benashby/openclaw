@@ -181,6 +181,48 @@ function normalizeMembers(members: readonly BuzzMentionMember[]): Map<string, Bu
   return normalized;
 }
 
+const NIP_27_REFERENCE_PREFIXES = ["nostr:npub1", "nostr:nprofile1"];
+const PLAIN_MENTION_TOKEN_PATTERN = /^[A-Za-z0-9._-]+/u;
+const SLASH_COMMAND_PATTERN = /^\/[A-Za-z0-9]/u;
+
+// Buzz clients address a bot as "@Name /command". This follows buzz-acp's
+// extract_slash_command so OpenClaw and ACP agents read the same text alike.
+export function extractBuzzSlashCommand(
+  text: string,
+  knownNames: readonly string[],
+): string | undefined {
+  // Longest first so "Dawn Smith" wins over "Dawn".
+  const names = knownNames
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .toSorted((left, right) => right.length - left.length);
+  let rest = text.trimStart();
+  while (true) {
+    if (NIP_27_REFERENCE_PREFIXES.some((prefix) => rest.startsWith(prefix))) {
+      const end = rest.search(/\s/u);
+      rest = end === -1 ? "" : rest.slice(end).trimStart();
+      continue;
+    }
+    if (!rest.startsWith("@")) {
+      break;
+    }
+    const afterAt = rest.slice(1);
+    const nameLength =
+      names.find((name) => {
+        const next = afterAt[name.length];
+        return (
+          asciiLowercase(afterAt.slice(0, name.length)) === asciiLowercase(name) &&
+          (next === undefined || /\s/u.test(next))
+        );
+      })?.length ?? PLAIN_MENTION_TOKEN_PATTERN.exec(afterAt)?.[0].length;
+    if (!nameLength) {
+      return undefined;
+    }
+    rest = afterAt.slice(nameLength).trimStart();
+  }
+  return SLASH_COMMAND_PATTERN.test(rest) ? rest : undefined;
+}
+
 export function inspectBuzzMentionSyntax(text: string): {
   hasAtMention: boolean;
   hasExplicitIdentity: boolean;

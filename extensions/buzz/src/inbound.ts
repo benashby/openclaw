@@ -13,6 +13,7 @@ import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-pay
 import { resolveThreadSessionKeys } from "openclaw/plugin-sdk/routing";
 import type { BuzzBus } from "./buzz-bus.js";
 import type { BuzzConfigInput } from "./config-schema.js";
+import { extractBuzzSlashCommand } from "./mentions.js";
 import {
   BUZZ_DIFF_MESSAGE_KIND,
   formatBuzzMessageForAgent,
@@ -25,6 +26,16 @@ import { buildBuzzTarget, parseBuzzTarget } from "./target.js";
 import type { ResolvedBuzzAccount } from "./types.js";
 
 const log = createSubsystemLogger("buzz/inbound");
+
+function resolveBuzzCommandText(params: { bus: BuzzBus; channelId: string; text: string }): string {
+  const names = [
+    params.bus.directory.self().name,
+    ...(params.bus.directory.mentionMembers(params.channelId) ?? []).map(
+      (member) => member.displayName,
+    ),
+  ].filter((name): name is string => Boolean(name));
+  return extractBuzzSlashCommand(params.text, names) ?? params.text;
+}
 
 export async function handleBuzzInbound(params: {
   account: ResolvedBuzzAccount;
@@ -87,11 +98,15 @@ export async function handleBuzzInbound(params: {
       ? resolveThreadSessionKeys({ baseSessionKey: route.sessionKey, threadId: threadRootId })
           .sessionKey
       : route.sessionKey;
+  // Only command detection reads past leading mentions; the agent keeps the original text.
+  const commandText = supportsTextInterpretation
+    ? resolveBuzzCommandText({ bus, channelId, text: message.text })
+    : message.text;
   const shouldComputeCommandAuthorized =
     supportsTextInterpretation &&
-    runtime.channel.commands.shouldComputeCommandAuthorized(message.text, cfg);
+    runtime.channel.commands.shouldComputeCommandAuthorized(commandText, cfg);
   const hasControlCommand =
-    shouldComputeCommandAuthorized && runtime.channel.text.hasControlCommand(message.text, cfg);
+    shouldComputeCommandAuthorized && runtime.channel.text.hasControlCommand(commandText, cfg);
   const access = await resolveStableChannelMessageIngress({
     channelId: "buzz",
     accountId: account.accountId,
@@ -217,7 +232,11 @@ export async function handleBuzzInbound(params: {
       body,
       bodyForAgent: history.bodyForAgent,
       rawBody: message.text,
-      commandBody: supportsTextInterpretation ? message.text : "",
+      commandBody: supportsTextInterpretation
+        ? hasControlCommand
+          ? commandText
+          : message.text
+        : "",
     },
     ...(inboundMedia?.length ? { media: inboundMedia } : {}),
     access: {
