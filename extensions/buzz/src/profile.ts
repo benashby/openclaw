@@ -4,6 +4,7 @@ import {
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { safeParseJson } from "openclaw/plugin-sdk/text-utility-runtime";
+import type { BuzzAgentCommand } from "./command-menu.js";
 import { queryBuzzRelaySnapshot } from "./relay-subscription.js";
 
 const PROFILE_KIND = 0;
@@ -92,6 +93,7 @@ export async function syncBuzzProfile(params: {
   publicKey: string;
   displayName: string;
   authTag?: string[];
+  commands?: readonly BuzzAgentCommand[];
   onFatalError?: (error: Error) => void;
   signal?: AbortSignal;
 }): Promise<BuzzProfileSyncResult> {
@@ -148,6 +150,14 @@ export async function syncBuzzProfile(params: {
     // OpenClaw accepts messages only from configured Bot-role rooms, so allowing
     // room admins to add this public identity does not expand Gateway ingress.
     agentContent.channel_add_policy = DEFAULT_CHANNEL_ADD_POLICY;
+    agentProfileChanged = true;
+  }
+  if (
+    params.commands &&
+    JSON.stringify(agentContent.commands) !== JSON.stringify(params.commands)
+  ) {
+    // Buzz command pickers read this list, and every room member can read the profile.
+    agentContent.commands = params.commands;
     agentProfileChanged = true;
   }
   if (agentProfileChanged) {

@@ -208,6 +208,33 @@ buzz-admin add-member --pubkey <BOT_PUBLIC_KEY> --role member
 OpenClaw cannot grant room or relay access. It displays only the bot public key
 needed by the authorized human.
 
+### Command menu
+
+OpenClaw lists its native commands in the bot's agent-directory profile as a
+`commands` array. Each entry has the shape ACP agents use in
+`available_commands_update`: a `name`, a `description`, and an optional
+`input.hint` such as `[instructions]`. A Buzz client that supports the list can
+offer the commands in a `/` picker. Picking one sends an ordinary message such
+as `@OpenClaw /compact`, which also works when typed by hand.
+
+OpenClaw builds the list when the account starts and republishes the profile
+only when the list changes. Command settings apply: `commands.config`,
+`commands.debug`, and the other opt-in commands are listed only when enabled.
+Aliases and skill, plugin, and custom commands are not listed.
+
+Publishing the list is enabled by default. Set `commandMenu: false` to opt out.
+OpenClaw then leaves any list already in the profile unchanged.
+
+```json5
+{
+  channels: {
+    buzz: {
+      commandMenu: false,
+    },
+  },
+}
+```
+
 ## Agent tools and messaging
 
 The Buzz plugin does not add a separate Buzz-only agent tool. It registers Buzz

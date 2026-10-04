@@ -9,6 +9,7 @@ import type { OutboundMediaLoadOptions } from "openclaw/plugin-sdk/outbound-medi
 import type { HistoryEntry } from "openclaw/plugin-sdk/reply-history";
 import { computeBackoff, sleepWithAbort } from "openclaw/plugin-sdk/runtime-env";
 import { sendBuzzTextOneShot, startBuzzBus, type BuzzBus } from "./buzz-bus.js";
+import { resolveBuzzCommandMenu } from "./command-menu.js";
 import { handleBuzzInbound } from "./inbound.js";
 import { openBuzzRecoveryWatermarkStore, resolveBuzzRecoverySince } from "./recovery-watermark.js";
 import {
@@ -128,6 +129,10 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
   }
 
   const watermarkStore = openBuzzRecoveryWatermarkStore({ accountId: account.accountId });
+  const profileCommands =
+    account.config.commandMenu === false
+      ? undefined
+      : resolveBuzzCommandMenu({ cfg: ctx.cfg, log: ctx.log });
 
   let reconnectAttempt = 0;
   while (!ctx.abortSignal.aborted) {
@@ -167,6 +172,7 @@ export async function startBuzzGatewayAccount(ctx: ChannelGatewayContext<Resolve
         privateKey: account.privateKey,
         authTag: account.authTag,
         profileName,
+        profileCommands,
         channelIds,
         autoJoin,
         ignoredRoomIds: disabledChannelIds,
