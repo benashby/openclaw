@@ -1,6 +1,7 @@
 import { nip19 } from "nostr-tools";
 import { describe, expect, it } from "vitest";
 import {
+  extractBuzzSlashCommand,
   inspectBuzzMentionSyntax,
   resolveBuzzMessageMentions,
   type BuzzMentionMember,
@@ -162,5 +163,35 @@ describe("Buzz outbound mentions", () => {
         senderPublicKey: BOT_PUBLIC_KEY,
       }),
     ).toThrow("Buzz messages support at most 50 mentions");
+  });
+});
+
+describe("Buzz slash commands", () => {
+  it.each([
+    { text: "/init", knownNames: [], expected: "/init" },
+    { text: "@Eva /goal ship it", knownNames: [], expected: "/goal ship it" },
+    { text: "@Eva @Max /review", knownNames: [], expected: "/review" },
+    {
+      text: `nostr:${nip19.npubEncode(ALICE_PUBLIC_KEY)} /status`,
+      knownNames: [],
+      expected: "/status",
+    },
+    { text: "@Dawn Smith /goal go", knownNames: ["Dawn Smith", "Eva"], expected: "/goal go" },
+    { text: "@dawn smith /compact", knownNames: ["Dawn Smith"], expected: "/compact" },
+  ])("finds the command after leading mentions in $text", ({ text, knownNames, expected }) => {
+    expect(extractBuzzSlashCommand(text, knownNames)).toBe(expected);
+  });
+
+  it.each([
+    { text: "@Dawn Smith /goal", knownNames: ["Dawn"] },
+    { text: "@Eva see /tmp/foo", knownNames: [] },
+    { text: "@Eva hello", knownNames: [] },
+    { text: "@Eva /", knownNames: [] },
+    { text: "@Eva //comment", knownNames: [] },
+    { text: "@Eva .goal", knownNames: [] },
+    { text: "@ /goal", knownNames: [] },
+    { text: "user@host.com /x", knownNames: [] },
+  ])("finds no command in $text", ({ text, knownNames }) => {
+    expect(extractBuzzSlashCommand(text, knownNames)).toBeUndefined();
   });
 });
