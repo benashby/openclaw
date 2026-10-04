@@ -397,6 +397,16 @@ type CliBackendManualCompaction = Readonly<{
   validateOutput: (rawOutput: string) => { ok: true } | { ok: false; reason: string };
 }>;
 
+/** Backend-owned report of what the resumed native session would send next. */
+type CliBackendNativeContextReport = Readonly<{
+  /** Builds the backend command that prints the native session's context usage. */
+  buildPrompt: () => string;
+  /** Prompt transport required by the backend control command. */
+  input: "arg" | "stdin";
+  /** Extracts the report from a successful process's raw output. */
+  parseOutput: (rawOutput: string) => { ok: true; text: string } | { ok: false; reason: string };
+}>;
+
 /** Plugin-owned CLI backend defaults used by the text-only CLI runner. */
 type CliBackendPluginBase = {
   /** Provider id used in model refs, for example `claude-cli/opus`. */
@@ -569,6 +579,8 @@ type CliBackendPluginBase = {
    * backend-owned tools.
    */
   sideQuestionToolMode?: CliBackendSideQuestionToolMode;
+  /** Optional control operation that reports the native session's own context usage. */
+  nativeContextReport?: CliBackendNativeContextReport;
 };
 
 type CliBackendNativeCompactionContract =

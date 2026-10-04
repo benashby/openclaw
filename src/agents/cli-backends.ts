@@ -41,6 +41,7 @@ export type ResolvedCliBackend = Pick<
   | "contextEngineHostCapabilities"
   | "ownsNativeCompaction"
   | "manualCompaction"
+  | "nativeContextReport"
   | "prepareExecution"
   | "resolveExecutionArgs"
   | "resolveModelId"
@@ -311,6 +312,7 @@ export function resolveCliBackendConfig(
     contextEngineHostCapabilities: backend.contextEngineHostCapabilities,
     ownsNativeCompaction: backend.ownsNativeCompaction,
     manualCompaction: backend.manualCompaction,
+    nativeContextReport: backend.nativeContextReport,
     prepareExecution: backend.prepareExecution,
     resolveExecutionArgs: backend.resolveExecutionArgs,
     resolveModelId: backend.resolveModelId,
