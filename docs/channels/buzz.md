@@ -387,6 +387,11 @@ Buzz applies two independent controls:
   room ingress, or additionally restrict room members to selected Buzz public
   keys.
 
+Text commands pass the same checks. A command can follow the bot's mention,
+the way Buzz clients write it: `@OpenClaw /status` runs `/status` for that bot.
+OpenClaw skips leading mentions only to find the command, and the agent still
+receives the original message.
+
 Fresh guided setup allows normal messages from current members of the selected
 rooms. OpenClaw loads Buzz's relay-signed room roster before accepting messages,
 checks membership before queuing and again after asynchronous admission, and
