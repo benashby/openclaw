@@ -416,6 +416,8 @@ Only declare `ownsNativeCompaction` for a backend that genuinely owns compaction
 
 Add the atomic `manualCompaction` capability only when its command compacts the resumed session in place. Its `input` selects the transport the backend command actually recognizes, and `validateOutput` must require a positive backend acknowledgement rather than treating a zero exit as success. OpenClaw runs it as an internal control operation: it is not written as a user turn and does not run agent or context-engine turn hooks.
 
+A backend can also declare `nativeContextReport`, a read-only command and parser for its own context usage. `claude-cli` declares Claude Code's `/context`, so a bare `/context` in a session bound to Claude Code returns Claude Code's report rather than OpenClaw's estimate. It runs the same way as manual compaction, is skipped while the session has an active turn, and adds Claude Code's local-command entries to that session's transcript.
+
 ## Bundle MCP overlays
 
 CLI backends do not receive OpenClaw tool calls directly, but a backend can opt into a generated MCP config overlay with `bundleMcp: true`. Current bundled behavior:

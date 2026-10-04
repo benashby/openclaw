@@ -538,6 +538,24 @@ export async function executeCliProcess(params: {
       finalPromptText: params.prompt,
     };
   }
+  if (runParams.controlOperation === "context") {
+    const nativeContextReport = context.backendResolved.nativeContextReport;
+    if (!nativeContextReport) {
+      throw new Error(
+        `CLI backend ${context.backendResolved.id} does not report native context usage`,
+      );
+    }
+    const report = nativeContextReport.parseOutput(readStdout());
+    if (!report.ok) {
+      throw createCliFailoverError(report.reason, "unknown", failoverContext);
+    }
+    return {
+      text: report.text,
+      rawText: report.text,
+      diagnostics: { process: processDiagnostics },
+      finalPromptText: params.prompt,
+    };
+  }
   const parsed =
     parsedStructuredOutput ??
     parseCliOutput({

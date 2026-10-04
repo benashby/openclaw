@@ -20,6 +20,7 @@ Context is _not the same thing_ as "memory": memory can be stored on disk and re
 ## Quick start (inspect context)
 
 - `/status` → quick "how full is my window?" view + session settings.
+- `/context` → this session's report. A session on a CLI runtime that reports its own context, such as Claude Code, returns that native report; other sessions get `/context list`.
 - `/context list` → what's injected + rough sizes (per file + totals).
 - `/context detail` → deeper breakdown: per-file, per-tool schema sizes, per-skill entry sizes, system prompt size, and compactable transcript message counts.
 - `/context map` → WinDirStat-style treemap image of the current session's tracked context contributors.
@@ -198,7 +199,9 @@ pluggable interface, lifecycle hooks, and configuration.
 - `System prompt (run)` = captured from the last embedded (tool-capable) run and persisted in the session store.
 - `System prompt (estimate)` = computed on the fly when no run report exists (or when running via a CLI backend that doesn't generate the report).
 
-Either way, it reports sizes and top contributors; it does **not** dump the full system prompt or tool schemas. In detailed mode, it also compares the session transcript with the same real-conversation message predicate used by compaction, so high prompt/cache usage is easier to distinguish from compactable conversation history.
+Either way, it reports sizes and top contributors; it does **not** dump the full system prompt or tool schemas.
+
+A CLI runtime such as Claude Code builds its own system prompt, tools, and skills, so OpenClaw's estimate does not describe what that session sends next. When the session is bound to a resumable native session and the backend can report its own usage, a bare `/context` asks it instead. For Claude Code that runs `/context` in the resumed session: a local command with no model call, which adds a few entries to Claude Code's transcript. The report is unavailable while the session is running a turn. The `list`, `detail`, `map`, and `json` modes still show OpenClaw's own view. In detailed mode, it also compares the session transcript with the same real-conversation message predicate used by compaction, so high prompt/cache usage is easier to distinguish from compactable conversation history.
 
 ## Related
 

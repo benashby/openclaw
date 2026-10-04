@@ -250,6 +250,7 @@ only for behavior that really belongs to the backend.
 | `bundleMcp` / `bundleMcpMode`      | Opt into OpenClaw's loopback MCP tool bridge                                |
 | `ownsNativeCompaction`             | Backend owns its own automatic compaction - OpenClaw defers                 |
 | `manualCompaction`                 | Atomic command, transport, and positive-acknowledgement contract            |
+| `nativeContextReport`              | Command and parser for the resumed session's own context usage report       |
 | `subscriptionAuthDispatch`         | Opted-in embedded runs on subscription credentials execute via this backend |
 | `runtimeArtifact`                  | Bound a script launcher to its complete bundled package tree                |
 
@@ -463,6 +464,29 @@ the bounded raw process output and must require a backend-owned positive
 acknowledgement; a zero exit alone is not proof of compaction. Do not declare
 this capability for a command that creates a separate session or requires an
 ordinary model turn.
+
+### `nativeContextReport`: the backend's own context usage
+
+A CLI that assembles its own system prompt, tools, and skills knows what its
+next request will hold; OpenClaw's `/context` estimate does not. Declare a
+report command so a bare `/context` asks the bound session instead:
+
+```typescript
+nativeContextReport: {
+  buildPrompt: () => "/context",
+  input: "arg",
+  parseOutput: (rawOutput) =>
+    rawOutput.includes("## Context Usage")
+      ? { ok: true, text: rawOutput }
+      : { ok: false, reason: "CLI did not print a context report." },
+},
+```
+
+OpenClaw resumes the session with that command as an internal control
+operation, the same way as `manualCompaction`, and replies with `text`. The
+command must only read the session: OpenClaw leaves an idle live session
+running afterwards. It is not run while the session has an active turn, and
+sessions without a resumable native session keep OpenClaw's report.
 
 ## MCP tool bridge
 

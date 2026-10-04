@@ -215,6 +215,29 @@ export function buildAnthropicCliBackend(
         };
       },
     },
+    nativeContextReport: {
+      buildPrompt: () => "/context",
+      input: "arg",
+      parseOutput: (rawOutput) => {
+        for (const line of rawOutput.split("\n")) {
+          try {
+            const event = JSON.parse(line) as {
+              type?: unknown;
+              message?: { content?: Array<{ type?: unknown; text?: unknown }> };
+            };
+            // Claude Code 2.1.284 answers /context locally, as one synthetic
+            // assistant message whose text is its Context Usage report.
+            const text = event.type === "assistant" ? event.message?.content?.[0]?.text : undefined;
+            if (typeof text === "string" && text.trimStart().startsWith("## Context Usage")) {
+              return { ok: true, text: text.trim() };
+            }
+          } catch {
+            // Ignore non-JSON process noise; only the report itself is authoritative.
+          }
+        }
+        return { ok: false, reason: "Claude CLI did not print a context usage report." };
+      },
+    },
     // Anthropic routes direct anthropic-messages calls on subscription OAuth
     // tokens to metered extra-usage billing (or rejects them without balance);
     // opted-in embedded runs on subscription credentials execute through this

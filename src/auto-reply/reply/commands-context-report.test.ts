@@ -3,7 +3,8 @@ import { mkdtemp, readFile, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { crc32, inflateSync } from "node:zlib";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { testing as cliBackendsTesting } from "../../agents/cli-backends.test-support.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { persistSessionTranscriptTurn } from "../../config/sessions/session-accessor.js";
@@ -14,6 +15,13 @@ import { buildCommandContext } from "./commands-context.js";
 import type { HandleCommandsParams } from "./commands-types.js";
 import { stripStructuralPrefixes } from "./mentions.js";
 import { buildTestCtx } from "./test-ctx.js";
+
+const contextRuntimeMocks = vi.hoisted(() => ({
+  isEmbeddedAgentRunAbortableForCompaction: vi.fn(() => false),
+  reportNativeCliContext: vi.fn(),
+}));
+
+vi.mock("./commands-context-report.runtime.js", () => contextRuntimeMocks);
 
 /** Tests context report command output and generated report files. */
 
@@ -151,7 +159,7 @@ async function withTranscript(
 
 describe("buildContextReply", () => {
   it("describes compactable transcript counts in help output", async () => {
-    const result = await buildContextReply(makeParams("/context", false));
+    const result = await buildContextReply(makeParams("/context help", false));
     expect(result.text).toContain(
       "/context detail (per-file + per-tool + per-skill + system prompt size + compactable transcript counts)",
     );
@@ -506,6 +514,88 @@ describe("buildContextReply", () => {
 });
 
 /** Tests context command behavior and token reporting. */
+
+describe("buildContextReply native CLI reports", () => {
+  beforeEach(() => {
+    contextRuntimeMocks.isEmbeddedAgentRunAbortableForCompaction.mockReset().mockReturnValue(false);
+    contextRuntimeMocks.reportNativeCliContext.mockReset();
+    cliBackendsTesting.setDepsForTest({
+      resolveRuntimeCliBackends: () =>
+        [
+          {
+            id: "claude-cli",
+            modelProvider: "anthropic",
+            config: { command: "claude" },
+            bundleMcp: false,
+          },
+        ] as never,
+    });
+  });
+
+  afterEach(() => {
+    cliBackendsTesting.resetDepsForTest();
+  });
+
+  function makeCliParams(commandBodyNormalized: string): HandleCommandsParams {
+    const params = makeParams(commandBodyNormalized, false, { sessionId: "openclaw-session" });
+    return {
+      ...params,
+      provider: "claude-cli",
+      model: "claude-opus-5-5",
+      sessionEntry: {
+        ...params.sessionEntry,
+        cliSessionBindings: { "claude-cli": { sessionId: "native-session" } },
+      },
+    } as HandleCommandsParams;
+  }
+
+  it("answers a bare /context from the bound CLI session's own report", async () => {
+    contextRuntimeMocks.reportNativeCliContext.mockResolvedValue({
+      ok: true,
+      text: "## Context Usage",
+    });
+
+    const result = await buildContextReply(makeCliParams("/context"));
+
+    expect(result.text).toBe("🧠 /context from claude-cli\n\n## Context Usage");
+    expect(contextRuntimeMocks.reportNativeCliContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtime: "claude-cli",
+        sessionId: "openclaw-session",
+        cliSessionId: "native-session",
+      }),
+    );
+  });
+
+  it("says why the native report failed", async () => {
+    contextRuntimeMocks.reportNativeCliContext.mockResolvedValue({
+      ok: false,
+      reason: "session is locked",
+    });
+
+    const result = await buildContextReply(makeCliParams("/context"));
+
+    expect(result.text).toBe("⚙️ Context unavailable: session is locked");
+  });
+
+  it("does not run the native report while the session runs a turn", async () => {
+    contextRuntimeMocks.isEmbeddedAgentRunAbortableForCompaction.mockReturnValue(true);
+
+    const result = await buildContextReply(makeCliParams("/context"));
+
+    expect(result.text).toContain("while this session runs a turn");
+    expect(contextRuntimeMocks.reportNativeCliContext).not.toHaveBeenCalled();
+  });
+
+  it("keeps OpenClaw's own breakdown for list modes and API sessions", async () => {
+    const listed = await buildContextReply(makeCliParams("/context list"));
+    const apiSession = await buildContextReply(makeParams("/context", false));
+
+    expect(listed.text).toContain("Bootstrap max/total");
+    expect(apiSession.text).toContain("Bootstrap max/total");
+    expect(contextRuntimeMocks.reportNativeCliContext).not.toHaveBeenCalled();
+  });
+});
 
 describe("buildCommandContext", () => {
   it("canonicalizes registered aliases like /id to their primary command", () => {

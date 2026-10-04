@@ -250,6 +250,11 @@ describe("resolveCliBackendConfig", () => {
       input: "arg" as const,
       validateOutput: vi.fn(() => ({ ok: true as const })),
     };
+    const nativeContextReport = {
+      buildPrompt: vi.fn(() => "/usage"),
+      input: "arg" as const,
+      parseOutput: vi.fn(() => ({ ok: true as const, text: "usage" })),
+    };
     const resolveExecutionArgs = vi.fn(({ baseArgs }: { baseArgs: readonly string[] }) => [
       ...baseArgs,
       "--effort",
@@ -262,6 +267,7 @@ describe("resolveCliBackendConfig", () => {
           resolveExecutionArgs: resolveExecutionArgs as never,
           ownsNativeCompaction: true,
           manualCompaction,
+          nativeContextReport,
           nativeToolMode: "selectable",
           toolAvailabilityEnforcement: "execution-args",
           isolatesInstructionsWithExactTools: true,
@@ -276,6 +282,7 @@ describe("resolveCliBackendConfig", () => {
     expect(resolved.prepareExecution).toBe(prepareExecution);
     expect(resolved.resolveExecutionArgs).toBe(resolveExecutionArgs);
     expect(resolved.ownsNativeCompaction).toBe(true);
+    expect(resolved.nativeContextReport).toBe(nativeContextReport);
     expect(resolved.manualCompaction).toBe(manualCompaction);
     expect(resolved.nativeToolMode).toBe("selectable");
     expect(resolved.toolAvailabilityEnforcement).toBe("execution-args");

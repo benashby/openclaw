@@ -56,6 +56,7 @@ export type ResolvedCliBackend = {
   contextEngineHostCapabilities?: readonly ContextEngineHostCapability[];
   ownsNativeCompaction?: boolean;
   manualCompaction?: CliBackendPlugin["manualCompaction"];
+  nativeContextReport?: CliBackendPlugin["nativeContextReport"];
   prepareExecution?: CliBackendPlugin["prepareExecution"];
   resolveExecutionArgs?: CliBackendPlugin["resolveExecutionArgs"];
   resolveModelId?: CliBackendPlugin["resolveModelId"];
@@ -325,6 +326,7 @@ export function resolveCliBackendConfig(
     contextEngineHostCapabilities: backend.contextEngineHostCapabilities,
     ownsNativeCompaction: backend.ownsNativeCompaction,
     manualCompaction: backend.manualCompaction,
+    nativeContextReport: backend.nativeContextReport,
     prepareExecution: backend.prepareExecution,
     resolveExecutionArgs: backend.resolveExecutionArgs,
     resolveModelId: backend.resolveModelId,

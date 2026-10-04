@@ -110,6 +110,36 @@ describe("Claude CLI adapter equivalence", () => {
       reason: "Claude CLI did not confirm that native compaction ran.",
     });
   });
+
+  it("reads Claude Code's native context usage report", () => {
+    const backend = buildAnthropicCliBackend();
+    const nativeContextReport = backend.nativeContextReport;
+    // Redacted from Claude Code 2.1.284 `claude -p --resume <id> /context` stream-json output.
+    const init = { type: "system", subtype: "init", session_id: "native-session" };
+    const report = {
+      type: "assistant",
+      message: {
+        model: "<synthetic>",
+        content: [{ type: "text", text: "## Context Usage\n\n**Tokens:** 30.2k / 1m (3%)\n" }],
+      },
+    };
+    const result = { type: "result", is_error: false, num_turns: 0 };
+
+    expect(nativeContextReport?.buildPrompt()).toBe("/context");
+    expect(nativeContextReport?.input).toBe("arg");
+    expect(
+      nativeContextReport?.parseOutput(
+        [init, report, result].map((event) => JSON.stringify(event)).join("\n"),
+      ),
+    ).toEqual({ ok: true, text: "## Context Usage\n\n**Tokens:** 30.2k / 1m (3%)" });
+    expect(
+      nativeContextReport?.parseOutput(
+        [init, { type: "assistant", message: { content: [{ type: "text", text: "OK" }] } }]
+          .map((event) => JSON.stringify(event))
+          .join("\n"),
+      ),
+    ).toEqual({ ok: false, reason: "Claude CLI did not print a context usage report." });
+  });
 });
 
 function expectDefaultDisallowedTools(args: readonly string[] | undefined) {
