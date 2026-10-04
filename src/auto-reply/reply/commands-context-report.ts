@@ -15,6 +15,7 @@ import {
   estimateMessageCharsCached,
 } from "../../agents/embedded-agent-runner/tool-result-char-estimator.js";
 import type { AgentMessage } from "../../agents/runtime/index.js";
+import { resolveManualCompactionCliTarget } from "../../agents/session-runtime-compat.js";
 import { buildSystemPromptReport } from "../../agents/system-prompt-report.js";
 import { resolveSessionStorePathForScope } from "../../config/sessions/session-store-path.js";
 import {
@@ -23,9 +24,14 @@ import {
   type SessionSystemPromptReport,
 } from "../../config/sessions/types.js";
 import { readSessionMessagesAsync } from "../../gateway/session-transcript-readers.js";
+import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import type { ReplyPayload } from "../types.js";
 import type { HandleCommandsParams } from "./commands-types.js";
 import { renderContextTreemapPng } from "./context-treemap.js";
+
+const contextReportRuntimeLoader = createLazyImportLoader(
+  () => import("./commands-context-report.runtime.js"),
+);
 
 const numberFormat = new Intl.NumberFormat("en-US");
 const formatInt = (value: number) => numberFormat.format(value);
@@ -161,12 +167,69 @@ async function resolveContextReport(
   });
 }
 
+// A CLI runtime assembles its own prompt, so OpenClaw's estimate does not describe what
+// that session sends next. Ask the bound native session for its report instead.
+async function buildNativeCliContextReply(
+  params: HandleCommandsParams,
+  entry: SessionEntry | undefined,
+): Promise<ReplyPayload | undefined> {
+  if (!entry?.sessionId) {
+    return undefined;
+  }
+  const target = resolveManualCompactionCliTarget({
+    provider: params.provider,
+    entry,
+    cfg: params.cfg,
+  });
+  if (!target.agentHarnessId || !target.cliSessionId) {
+    return undefined;
+  }
+  const runtime = await contextReportRuntimeLoader.load();
+  // A second process on the same native transcript would race a running turn. Use
+  // /compact's gate: it ignores this command's own reply, still before the backend.
+  if (runtime.isEmbeddedAgentRunAbortableForCompaction(entry.sessionId)) {
+    return {
+      text: "⚙️ Context unavailable while this session runs a turn. Send /context again when it finishes.",
+    };
+  }
+  const report = await runtime.reportNativeCliContext({
+    runtime: target.agentHarnessId,
+    config: params.cfg,
+    sessionId: entry.sessionId,
+    sessionKey: params.sessionKey,
+    agentId: resolveContextReportAgentId(params),
+    workspaceDir: params.workspaceDir,
+    agentDir: params.agentDir,
+    provider: params.provider,
+    model: params.model,
+    cliSessionId: target.cliSessionId,
+    cliSessionBinding: target.cliSessionBinding,
+    authProfileId: entry.authProfileOverride,
+    sessionEntry: entry,
+    abortSignal: params.opts?.abortSignal,
+  });
+  if (!report) {
+    return undefined;
+  }
+  return report.ok
+    ? { text: `🧠 /context from ${target.agentHarnessId}\n\n${report.text}` }
+    : { text: `⚙️ Context unavailable: ${report.reason}` };
+}
+
 export async function buildContextReply(params: HandleCommandsParams): Promise<ReplyPayload> {
   const targetSessionEntry = params.sessionStore?.[params.sessionKey] ?? params.sessionEntry;
   const args = parseContextArgs(params.command.commandBodyNormalized);
-  const sub = normalizeLowercaseStringOrEmpty(args.split(/\s+/).find(Boolean));
+  const requested = normalizeLowercaseStringOrEmpty(args.split(/\s+/).find(Boolean));
 
-  if (!sub || sub === "help") {
+  if (!requested) {
+    const nativeReply = await buildNativeCliContextReply(params, targetSessionEntry);
+    if (nativeReply) {
+      return nativeReply;
+    }
+  }
+  const sub = requested || "list";
+
+  if (sub === "help") {
     return {
       text: [
         "🧠 /context",
@@ -174,6 +237,7 @@ export async function buildContextReply(params: HandleCommandsParams): Promise<R
         "What counts as context (high-level), plus a breakdown mode.",
         "",
         "Try:",
+        "- /context        (this session's report; CLI runtimes such as Claude Code report natively)",
         "- /context list   (short breakdown)",
         "- /context detail (per-file + per-tool + per-skill + system prompt size + compactable transcript counts)",
         "- /context map    (WinDirStat-style treemap image)",

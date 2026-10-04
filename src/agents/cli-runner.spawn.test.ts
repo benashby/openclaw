@@ -1241,6 +1241,48 @@ describe("runCliAgent spawn path", () => {
     }
   });
 
+  it("returns the backend's parsed report for a native context control operation", async () => {
+    supervisorSpawnMock.mockResolvedValueOnce(
+      createManagedRun({
+        ...createSuccessfulProcessExit(),
+        stdout: "native report output",
+      }),
+    );
+    const parseOutput = vi.fn(() => ({ ok: true as const, text: "## Context Usage" }));
+    const context = buildPreparedCliRunContext({});
+    context.params.controlOperation = "context";
+    context.backendResolved.nativeContextReport = {
+      input: "arg",
+      buildPrompt: () => "/context",
+      parseOutput,
+    };
+
+    const result = await executePreparedCliRun(context, "native-session");
+
+    expect(parseOutput).toHaveBeenCalledWith("native report output");
+    expect(result.text).toBe("## Context Usage");
+  });
+
+  it("fails a native context control operation without a report", async () => {
+    supervisorSpawnMock.mockResolvedValueOnce(
+      createManagedRun({
+        ...createSuccessfulProcessExit(),
+        stdout: "no report",
+      }),
+    );
+    const context = buildPreparedCliRunContext({});
+    context.params.controlOperation = "context";
+    context.backendResolved.nativeContextReport = {
+      input: "arg",
+      buildPrompt: () => "/context",
+      parseOutput: () => ({ ok: false, reason: "No context usage report." }),
+    };
+
+    await expect(executePreparedCliRun(context, "native-session")).rejects.toThrow(
+      "No context usage report.",
+    );
+  });
+
   it("runs CLI through supervisor and returns payload", async () => {
     const logInfoSpy = vi.spyOn(cliBackendLog, "info").mockImplementation(() => undefined);
     supervisorSpawnMock.mockResolvedValueOnce(

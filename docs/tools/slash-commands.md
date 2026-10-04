@@ -303,7 +303,7 @@ plugins, and installed skills.
     | `/dashboard [request]` | Create or update the current session's dashboard using the Control UI dashboard workflow |
     | `/diagnostics [note]` | Owner-only support-report flow. Asks for exec approval every time |
     | `/openclaw <request>` | Run the OpenClaw setup and repair helper from an owner DM |
-    | `/context [list\|detail\|map\|json]` | Explain how context is assembled |
+    | `/context [list\|detail\|map\|json]` | Explain how context is assembled; bare `/context` asks a CLI runtime such as Claude Code for its own report |
     | `/whoami` | Show your sender id. Alias: `/id` |
     | `/usage off\|tokens\|full\|reset\|cost` | Control the per-response usage footer (`reset`/`inherit`/`clear`/`default` clears the session override to re-inherit the configured default) or print a local cost summary |
   </Accordion>

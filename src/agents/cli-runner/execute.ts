@@ -222,10 +222,13 @@ export async function executePreparedCliRun(
         ...(imageTurnEntryId ? { imageTurnKey: hashCliImageTurnEntryId(imageTurnEntryId) } : {}),
       });
   prompt = imagePayload.prompt;
-  const promptInputBackend =
-    params.controlOperation === "compact" && context.backendResolved.manualCompaction
-      ? { ...backend, input: context.backendResolved.manualCompaction.input }
-      : backend;
+  const controlInput =
+    params.controlOperation === "compact"
+      ? context.backendResolved.manualCompaction?.input
+      : params.controlOperation === "context"
+        ? context.backendResolved.nativeContextReport?.input
+        : undefined;
+  const promptInputBackend = controlInput ? { ...backend, input: controlInput } : backend;
   const { argsPrompt, stdin } = resolvePromptInput({ backend: promptInputBackend, prompt });
   const baseArgs = useResume ? (backend.resumeArgs ?? backend.args ?? []) : (backend.args ?? []);
   const resolvedArgs = useResume
