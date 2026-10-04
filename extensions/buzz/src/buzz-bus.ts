@@ -1,5 +1,6 @@
 import { type Relay, finalizeEvent, type Event } from "nostr-tools";
 import { createChannelReplayGuard } from "openclaw/plugin-sdk/persistent-dedupe";
+import type { BuzzAgentCommand } from "./command-menu.js";
 import {
   queryBuzzDirectoryProfiles,
   queryBuzzDirectoryRooms,
@@ -262,6 +263,8 @@ export async function startBuzzBus(options: {
   onRoomUnavailable?: (error: Error) => void;
   onPresenceError?: (error: Error) => void;
   profileName?: string;
+  /** Commands advertised in the agent profile for Buzz command pickers. */
+  profileCommands?: readonly BuzzAgentCommand[];
   onProfilePublished?: (eventId: string) => void;
   onProfileError?: (error: Error) => void;
   onDirectoryError?: (error: Error) => void;
@@ -547,6 +550,7 @@ export async function startBuzzBus(options: {
         publicKey,
         displayName: options.profileName,
         authTag,
+        commands: options.profileCommands,
         onFatalError: reportFatalError,
         signal,
       })

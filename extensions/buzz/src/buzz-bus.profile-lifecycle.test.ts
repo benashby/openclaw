@@ -214,6 +214,79 @@ describe("Buzz profile lifecycle", () => {
     },
   );
 
+  function signAgentProfile(content: Record<string, unknown>) {
+    return finalizeEvent(
+      {
+        kind: 10_100,
+        created_at: 1_700_000_000,
+        content: JSON.stringify(content),
+        tags: [],
+      },
+      Uint8Array.from(Buffer.from(PRIVATE_KEY, "hex")),
+    );
+  }
+
+  const COMPACT_COMMAND = {
+    name: "compact",
+    description: "Compact the session context.",
+    input: { hint: "[instructions]" },
+  };
+
+  it("advertises commands in the agent profile without dropping its other fields", async () => {
+    relayMocks.auth.mockResolvedValue("ok");
+    relayMocks.profileEvents = [
+      signAgentProfile({
+        name: "Agent",
+        display_name: "Agent",
+        channel_add_policy: "owner_only",
+        agent_type: "openclaw",
+      }),
+    ];
+
+    const bus = await startTestBus({
+      profileName: "Agent",
+      profileCommands: [COMPACT_COMMAND],
+    });
+
+    await vi.waitFor(() =>
+      expect(relayMocks.publish.mock.calls.some(([event]) => event.kind === 10_100)).toBe(true),
+    );
+    const agentProfile = relayMocks.publish.mock.calls
+      .map(([event]) => event)
+      .find((event) => event.kind === 10_100);
+    expect(JSON.parse(agentProfile?.content ?? "{}")).toEqual({
+      name: "Agent",
+      display_name: "Agent",
+      channel_add_policy: "owner_only",
+      agent_type: "openclaw",
+      commands: [COMPACT_COMMAND],
+    });
+    await bus.close();
+  });
+
+  it("keeps an agent profile that already advertises the same commands", async () => {
+    relayMocks.auth.mockResolvedValue("ok");
+    relayMocks.profileEvents = [
+      signAgentProfile({
+        name: "Agent",
+        display_name: "Agent",
+        channel_add_policy: "anyone",
+        commands: [COMPACT_COMMAND],
+      }),
+    ];
+    const onProfilePublished = vi.fn();
+
+    const bus = await startTestBus({
+      profileName: "Agent",
+      profileCommands: [COMPACT_COMMAND],
+      onProfilePublished,
+    });
+
+    await vi.waitFor(() => expect(onProfilePublished).toHaveBeenCalledOnce());
+    expect(relayMocks.publish.mock.calls.map(([event]) => event.kind)).not.toContain(10_100);
+    await bus.close();
+  });
+
   it("recycles the Buzz bus when profile synchronization never reaches EOSE", async () => {
     vi.useFakeTimers();
     relayMocks.auth.mockResolvedValue("ok");

@@ -55,6 +55,7 @@ const BuzzAccountConfigSchema = z
       .optional(),
     historyLimit: z.number().int().min(0).max(20).optional(),
     threadSessions: z.boolean().optional(),
+    commandMenu: z.boolean().optional(),
     defaultTo: z.string().optional(),
   })
   .strict();
@@ -85,10 +86,17 @@ const roomThreadSessionsHint = {
   help: "Override Thread Sessions for this room. False keeps one session for the whole room, so every message continues it and /new resets it; true gives each thread its own session. Omit to use the account setting.",
 };
 
+const commandMenuHint = {
+  label: "Command Menu",
+  help: "Publish OpenClaw's native commands in this bot's Buzz agent profile so Buzz clients can offer them in a / command picker. On by default; false stops updating the published list.",
+};
+
 export const BuzzConfigSchema = buildChannelConfigSchema(RawBuzzConfigSchema, {
   uiHints: {
     threadSessions: threadSessionsHint,
     "accounts.*.threadSessions": threadSessionsHint,
+    commandMenu: commandMenuHint,
+    "accounts.*.commandMenu": commandMenuHint,
     "groups.*.threadSessions": roomThreadSessionsHint,
     "accounts.*.groups.*.threadSessions": roomThreadSessionsHint,
     "groups.*.replyToMode": roomReplyToModeHint,

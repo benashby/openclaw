@@ -680,6 +680,36 @@ describe("Buzz gateway lifecycle", () => {
     await expect(lifecycle).resolves.toBeUndefined();
   });
 
+  it("advertises native commands in the bot profile by default", async () => {
+    const { abortController, lifecycle } = startTestGateway();
+    await vi.waitFor(() => expect(gatewayMocks.startBuzzBus).toHaveBeenCalledOnce());
+
+    expect(gatewayMocks.startBuzzBus.mock.calls[0]?.[0].profileCommands).toContainEqual({
+      name: "compact",
+      description: "Compact the session context.",
+      input: { hint: "[instructions]" },
+    });
+
+    abortController.abort();
+    await expect(lifecycle).resolves.toBeUndefined();
+  });
+
+  it("leaves the profile's commands alone when commandMenu is false", async () => {
+    const baseCfg = createBuzzConfig();
+    const { abortController, lifecycle } = startTestGateway({
+      cfg: {
+        ...baseCfg,
+        channels: { ...baseCfg.channels, buzz: { ...baseCfg.channels?.buzz, commandMenu: false } },
+      } as OpenClawConfig,
+    });
+    await vi.waitFor(() => expect(gatewayMocks.startBuzzBus).toHaveBeenCalledOnce());
+
+    expect(gatewayMocks.startBuzzBus.mock.calls[0]?.[0].profileCommands).toBeUndefined();
+
+    abortController.abort();
+    await expect(lifecycle).resolves.toBeUndefined();
+  });
+
   it.each(["all", "off"] as const)(
     "uses %s-mode heartbeat typing without destabilizing the account",
     async (replyToMode) => {
